@@ -821,10 +821,12 @@
     const idx = TT.indexState(state);
     const q = norm(ui.listFilter).toLowerCase();
     const hours = new Map();
+    const termH = new Map();
     const count = new Map();
     for (const a of state.assignments) {
       const k = a.teacherId || '__none';
       hours.set(k, (hours.get(k) || 0) + TT.assignmentHours(a, idx.subjects));
+      termH.set(k, (termH.get(k) || 0) + hoursInfo(a, idx).total);
       count.set(k, (count.get(k) || 0) + 1);
     }
     const ents = state.teachers.filter((t) => !q || norm(t.name).toLowerCase().includes(q));
@@ -838,10 +840,23 @@
     const groups = entityGroups(ents, 'teacher');
     box.innerHTML = none + groups.map(([name, list]) =>
       '<div class="eg"><div class="eg-name">' + esc(name) + '</div>' + list.map((t) =>
-        item(t.id, t.name, (hours.get(t.id) || 0) + ' ชม./สัปดาห์ · ' + (count.get(t.id) || 0) + ' รายการ',
+        item(t.id, t.name, (hours.get(t.id) || 0) + ' ชม./สัปดาห์ · ' + (termH.get(t.id) || 0) + ' ชม./เทอม',
           count.get(t.id) ? '' : '<span class="badge">ว่าง</span>')).join('') + '</div>').join('') ||
       '<p class="hint">ยังไม่มีครู เพิ่มได้ที่ ข้อมูล → ครู</p>';
     $$('[data-teacher]', box).forEach((b) => (b.onclick = () => { ui.assignTeacher = b.dataset.teacher; render(); }));
+  }
+
+  /** ชั่วโมงที่ต้องสอน/จัดแล้ว ของรายการหนึ่ง (รายสัปดาห์ และทั้งเทอม) */
+  function hoursInfo(a, idx) {
+    const weeks = state.settings.weeks;
+    const weekly = TT.assignmentHours(a, idx.subjects);
+    if (TT.isTerm(a)) {
+      const st = TT.termStatus(state, a, idx.subjects);
+      return { weekly, total: st.total, placedTotal: st.placed, term: true, custom: Number(a.totalHours) > 0 };
+    }
+    const lens = TT.assignmentBlocks(a, idx.subjects);
+    const placedWeekly = state.placements.filter((p) => p.assignmentId === a.id).reduce((n, p) => n + (lens[p.blockIndex] || 0), 0);
+    return { weekly, total: weekly * weeks, placedWeekly, placedTotal: placedWeekly * weeks, term: false };
   }
 
   function renderTeacherWork(el) {
@@ -862,18 +877,19 @@
     } else {
       const dept = idx.departments.get(t.departmentId);
       const sum = TT.teacherSummary(state, t.id);
-      const termHours = list.filter(TT.isTerm).reduce((n, a) => n + TT.termTotal(state, a, idx.subjects), 0);
-      const weeklyBlocks = TT.allBlocks(state).filter((b) => b.assignment.teacherId === t.id);
-      const placed = weeklyBlocks.filter((b) => b.placement).length;
+      const infos = list.map((a) => hoursInfo(a, idx));
+      const needWeek = infos.reduce((n, x) => n + x.weekly, 0);
+      const needTerm = infos.reduce((n, x) => n + x.total, 0);
+      const doneTerm = infos.reduce((n, x) => n + x.placedTotal, 0);
       head = '<div class="work-head"><div><h1>' + esc(t.name) + '</h1><p>' +
         [dept ? 'แผนก' + dept.name : '', t.qualification, t.major ? 'สาขา' + t.major : '', t.duty ? 'หน้าที่พิเศษ: ' + t.duty : ''].filter(Boolean).map(esc).join(' · ') + '</p></div>' +
         '<div class="work-actions"><button class="btn" id="w-edit">แก้ไขข้อมูลครู</button><button class="btn primary" id="w-sched">ไปจัดตาราง →</button></div></div>' +
         '<div class="stats">' +
-        '<div class="stat-tile"><span>ชั่วโมงสอน</span><b>' + sum.totals.h + '</b><small>ชม./สัปดาห์</small></div>' +
-        '<div class="stat-tile"><span>ท. / ป. / น.</span><b>' + sum.totals.t + ' / ' + sum.totals.p + ' / ' + sum.totals.n + '</b><small>รวมทุกรายวิชา</small></div>' +
-        '<div class="stat-tile"><span>รายการ</span><b>' + list.length + '</b><small>วิชา/กิจกรรม</small></div>' +
-        '<div class="stat-tile"><span>ตารางรายสัปดาห์</span><b>' + placed + ' / ' + weeklyBlocks.length + '</b><small>ก้อนที่จัดแล้ว</small></div>' +
-        (termHours ? '<div class="stat-tile"><span>ตารางทั้งเทอม</span><b>' + termHours + '</b><small>ชม. ทั้งเทอม</small></div>' : '') +
+        '<div class="stat-tile"><span>ต้องสอนต่อสัปดาห์</span><b>' + needWeek + ' <em>ชม.</em></b><small>รวมทุกรายวิชา/กิจกรรม</small></div>' +
+        '<div class="stat-tile accent"><span>ต้องสอนทั้งเทอม</span><b>' + needTerm + ' <em>ชม.</em></b><small>' + state.settings.weeks + ' สัปดาห์</small></div>' +
+        '<div class="stat-tile ' + (doneTerm >= needTerm && needTerm ? 'ok' : 'warn') + '"><span>จัดตารางแล้ว</span><b>' + doneTerm + ' <em>/ ' + needTerm + ' ชม.</em></b>' +
+        '<small>' + (needTerm - doneTerm > 0 ? 'เหลือ ' + (needTerm - doneTerm) + ' ชม.' : 'ครบแล้ว') + '</small></div>' +
+        '<div class="stat-tile"><span>ท. / ป. / น.</span><b>' + sum.totals.t + ' / ' + sum.totals.p + ' / ' + sum.totals.n + '</b><small>' + list.length + ' รายการ</small></div>' +
         '</div>';
     }
 
@@ -881,10 +897,10 @@
       '<section class="card"><div class="card-head"><div><h2>รายวิชาที่สอน</h2><p>พิมพ์รหัสหรือชื่อวิชาในช่องแรก · เรียนรวมหลายกลุ่มในคาบเดียวกันให้เลือกหลายกลุ่ม · สอนแยกเวลาให้เพิ่มเป็นคนละแถว</p></div>' +
       '<div class="btns tight"><button class="btn" id="apaste">วางจาก Excel</button>' + (none ? '' : '<button class="btn primary" id="aadd">+ เพิ่มรายวิชาที่สอน</button>') + '</div></div>' +
       '<div class="table-wrap flat"><table class="data assign"><thead><tr>' + (none ? '<th>ครู</th>' : '') +
-      '<th>วิชา / กิจกรรม</th><th>กลุ่มเรียน</th><th>ห้อง/สถานที่</th><th>ชม./สัปดาห์</th><th>การจัด</th><th>รายละเอียดการจัด</th><th>สถานะ</th><th></th></tr></thead><tbody>' +
+      '<th>วิชา / กิจกรรม</th><th>กลุ่มเรียน</th><th>ห้อง/สถานที่</th><th>ชม./สัปดาห์</th><th>ต้องสอน<br>ทั้งเทอม</th><th>การจัด</th><th>รายละเอียดการจัด</th><th>จัดแล้ว</th><th></th></tr></thead><tbody>' +
       (list.map((a) => assignRow(a, idx, placedCount, none)).join('') ||
-        '<tr><td colspan="9" class="empty-row">ยังไม่มีรายวิชา กด "+ เพิ่มรายวิชาที่สอน"</td></tr>') +
-      '</tbody></table></div></section>' +
+        '<tr><td colspan="10" class="empty-row">ยังไม่มีรายวิชา กด "+ เพิ่มรายวิชาที่สอน"</td></tr>') +
+      '</tbody>' + (list.length ? totalsRow(list, idx, none) : '') + '</table></div></section>' +
       '<div class="tip">' + ICON.info + '<span><b>ตารางรายสัปดาห์</b> = เรียนเวลาเดิมทุกสัปดาห์ (แบ่งคาบได้ เช่น 2+2, ติ๊ก Block Course ถ้าเรียนข้ามพักกลางวัน) · ' +
       '<b>ตารางทั้งเทอม</b> = วางเป็นรายวันใน ' + state.settings.weeks + ' สัปดาห์จนครบชั่วโมง เช่น 3 ชม./สัปดาห์ × ' + state.settings.weeks + ' = ' + 3 * state.settings.weeks + ' ชม. วันละ 4 ชม.</span></div>';
 
@@ -906,6 +922,16 @@
     bindAssignRows(el);
   }
 
+  function totalsRow(list, idx, showTeacher) {
+    const infos = list.map((a) => hoursInfo(a, idx));
+    const w = infos.reduce((n, x) => n + x.weekly, 0);
+    const t = infos.reduce((n, x) => n + x.total, 0);
+    const d = infos.reduce((n, x) => n + x.placedTotal, 0);
+    return '<tfoot><tr>' + (showTeacher ? '<td></td>' : '') + '<td colspan="3" class="r"><b>รวม</b></td>' +
+      '<td class="c"><b>' + w + '</b></td><td class="c"><b>' + t + '</b><small>ชม.</small></td><td colspan="2"></td>' +
+      '<td class="c ' + (d >= t ? 'ok' : 'todo') + '">' + d + '/' + t + '<small>ชม.</small></td><td></td></tr></tfoot>';
+  }
+
   function assignRow(a, idx, placedCount, showTeacher) {
     const blocks = TT.assignmentBlocks(a, idx.subjects);
     const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
@@ -914,14 +940,18 @@
     const term = TT.isTerm(a);
     const def = TT.defaultPattern(hours, a.blockCourse);
     const mismatch = sj && !a.blockCourse && TT.subjectHours(sj) !== hours;
+    const hi = hoursInfo(a, idx);
     let status;
     if (term) {
-      const st = TT.termStatus(state, a, idx.subjects);
-      status = '<td class="c ' + (st.remaining ? 'todo' : 'ok') + '">' + st.placed + '/' + st.total + '<small>ชม.</small></td>';
+      status = '<td class="c ' + (hi.placedTotal < hi.total ? 'todo' : 'ok') + '" title="ชั่วโมงที่วางในตารางทั้งเทอมแล้ว">' + hi.placedTotal + '/' + hi.total + '<small>ชม.</small></td>';
     } else {
-      const done = placedCount.get(a.id) || 0;
-      status = '<td class="c ' + (done >= blocks.length ? 'ok' : 'todo') + '">' + done + '/' + blocks.length + '<small>ก้อน</small></td>';
+      status = '<td class="c ' + (hi.placedWeekly < hi.weekly ? 'todo' : 'ok') + '" title="ชั่วโมงที่วางในตารางรายสัปดาห์แล้ว (ต่อสัปดาห์)">' + hi.placedWeekly + '/' + hi.weekly + '<small>ชม./สัปดาห์</small></td>';
     }
+    const weeks = state.settings.weeks;
+    const totalCell = term
+      ? '<td class="c total-cell"><input type="number" min="1" max="999" data-total aria-label="ชั่วโมงที่ต้องสอนทั้งเทอม" value="' + (hi.custom ? hi.total : '') + '" placeholder="' + hi.weekly * weeks + '" style="width:4.2em"> ชม.' +
+        '<small>' + (hi.custom ? 'กำหนดเอง' : hi.weekly + ' × ' + weeks + ' สัปดาห์') + '</small></td>'
+      : '<td class="c total-cell"><b>' + hi.total + '</b> ชม.<small>' + hi.weekly + ' × ' + weeks + ' สัปดาห์</small></td>';
     let detail;
     if (rec) detail = '<span class="muted">ทุกวัน' + esc((state.settings.recurring.find((r) => r.id === a.recurringId) || {}).day || '') + ' (ล็อก)</span>';
     else if (term) {
@@ -945,7 +975,7 @@
           : 'เลือกกลุ่มเรียน…') + '</button>') + '</td>' +
       '<td><select data-af="roomId" aria-label="ห้อง">' + options(state.rooms, a.roomId, (r) => r.name, '-') + '</select></td>' +
       '<td class="c">' + (rec ? hours : '<input type="number" min="1" max="40" data-hours aria-label="ชั่วโมงต่อสัปดาห์" value="' + hours + '" style="width:3.6em"' +
-        (mismatch ? ' class="warn-in" title="ไม่ตรงกับ ท.+ป. ของรายวิชา (' + TT.subjectHours(sj) + ')"' : '') + '>') + '</td>' +
+        (mismatch ? ' class="warn-in" title="ไม่ตรงกับ ท.+ป. ของรายวิชา (' + TT.subjectHours(sj) + ')"' : '') + '>') + '</td>' + totalCell +
       '<td>' + (rec ? '<span class="muted">กิจกรรมประจำ</span>' : '<select data-af="plan" aria-label="การจัด"><option value="weekly"' + (term ? '' : ' selected') + '>รายสัปดาห์</option><option value="term"' + (term ? ' selected' : '') + '>ทั้งเทอม</option></select>') + '</td>' +
       '<td class="detail-cell">' + detail + '</td>' + status +
       '<td class="nowrap">' + (rec ? '' : '<button class="btn icon" data-dup aria-label="ทำสำเนา" title="ทำสำเนา (วิชาเดียวกัน อีกกลุ่มเรียน)">⧉</button><button class="btn icon danger" data-del aria-label="ลบ">' + ICON.x + '</button>') + '</td></tr>';
@@ -978,6 +1008,13 @@
           a.title = text;
         }
         commit();
+      };
+      const tot = $('[data-total]', tr);
+      if (tot) tot.onchange = () => {
+        const n = Math.round(Number(tot.value) || 0);
+        a.totalHours = n > 0 ? n : '';
+        commit();
+        if (n > 0) toast('ตั้งชั่วโมงทั้งเทอมเป็น ' + n + ' ชม. (ลบตัวเลขออกเพื่อกลับไปคิดอัตโนมัติ)');
       };
       const hrs = $('[data-hours]', tr);
       if (hrs) hrs.onchange = () => {

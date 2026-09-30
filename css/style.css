@@ -396,6 +396,14 @@ label.chk.small { font-size: 12px; color: var(--ink-2); margin-top: 2px; display
 table.data td small { font-size: 11px; font-weight: 400; margin-left: 2px; }
 table.data input.warn-in { color: var(--warn); border-color: var(--warn-soft) !important; }
 
+.stat-tile b em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--muted); }
+.stat-tile.accent { background: var(--accent-soft); border-color: var(--accent-line); }
+.stat-tile.accent b { color: var(--accent); }
+.total-cell { white-space: nowrap; font-size: 13px; }
+.total-cell small { display: block; margin: 0 !important; color: var(--muted); }
+table.data tfoot td { background: #FBFAF8; border-top: 1px solid var(--line); border-bottom: 0; font-size: 13px; }
+table.data tfoot td.r { text-align: right; }
+
 /* ---------- ตารางทั้งเทอม ---------- */
 table.term-grid { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; min-width: 620px; }
 table.term-grid th { font-size: 13px; font-weight: 600; padding: 4px 4px 8px; border-bottom: 1px solid var(--line); }
