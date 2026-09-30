@@ -116,14 +116,22 @@
     const rules = $('#hdr-rules');
     rules.classList.toggle('active', ui.tab === 'rules');
     rules.onclick = () => go('rules');
+    const issues = TT.checkData(state);
+    const errors = issues.filter((i) => i.level === 'error').length;
+    const badge = $('#hdr-check-n');
+    badge.textContent = issues.length || '';
+    badge.className = 'count-badge' + (errors ? ' bad' : issues.length ? ' warn' : '');
+    const chk = $('#hdr-check');
+    chk.classList.toggle('active', ui.tab === 'check');
+    chk.onclick = () => go('check');
     $('#hdr-term').textContent = 'ภาคเรียน ' + state.settings.semester + '/' + state.settings.year;
 
     const main = $('#main');
     main.className = 'tab-' + ui.tab;
-    const intro = isEmpty() && ui.tab !== 'rules'
+    const intro = isEmpty() && ui.tab !== 'rules' && ui.tab !== 'check'
       ? '<div class="notice">' + ICON.info + '<span>ยังไม่มีข้อมูล เริ่มกรอกที่ <b>ข้อมูล</b> หรือลองใช้ข้อมูลตัวอย่างก่อน</span><button class="btn small" id="load-sample">โหลดข้อมูลตัวอย่าง</button></div>'
       : '';
-    const fn = { data: renderData, assign: renderAssign, schedule: renderSchedule, print: renderPrint, rules: renderRules }[ui.tab];
+    const fn = { data: renderData, assign: renderAssign, schedule: renderSchedule, print: renderPrint, rules: renderRules, check: renderCheck }[ui.tab];
     main.innerHTML = intro + '<div id="view"></div>';
     fn($('#view'));
     const ls = $('#load-sample');
@@ -144,6 +152,68 @@
     ui.tab = 'schedule';
     commit();
     toast('โหลดข้อมูลตัวอย่างแล้ว');
+  }
+
+  /* ------------------------------- ตรวจสอบ ------------------------------- */
+
+  const ISSUE_LABEL = {
+    'dup-group': 'กลุ่มเรียนซ้ำ',
+    'dup-subject': 'ลงวิชาซ้ำ',
+    'group-clash': 'เรียนซ้อนเวลา',
+    'group-overload': 'ชั่วโมงเกิน',
+    'no-group': 'ไม่มีกลุ่มเรียน',
+    'dup-teacher': 'ชื่อครูซ้ำ',
+    'dup-subjectcode': 'รหัสวิชาซ้ำ',
+  };
+
+  function renderCheck(el) {
+    const issues = TT.checkData(state);
+    const idx = TT.indexState(state);
+    const errors = issues.filter((i) => i.level === 'error');
+    const warns = issues.filter((i) => i.level === 'warn');
+    const usage = (gid) => state.assignments.filter((a) => a.groupIds.includes(gid)).length;
+    const card = (i, n) => {
+      let actions = '';
+      if (i.type === 'dup-group') {
+        actions = '<div class="dup-list">' + i.groupIds.map((gid) => {
+          const g = idx.groups.get(gid);
+          return '<div class="dup-row"><span class="grow"><b>' + esc(g.name) + '</b><small>รหัส ' + esc(g.code) + (g.level ? ' · ' + esc(g.level) : '') +
+            (g.advisor ? ' · ที่ปรึกษา ' + esc(g.advisor) : '') + ' · ใช้ใน ' + usage(gid) + ' รายการ</small></span>' +
+            '<button class="btn small" data-keep="' + esc(gid) + '" data-issue="' + n + '">เก็บอันนี้ รวมที่เหลือเข้ามา</button></div>';
+        }).join('') + '</div>';
+      } else if (i.groupIds && i.groupIds.length) {
+        actions = '<div class="btns"><button class="btn small" data-see-group="' + esc(i.groupIds[0]) + '">ดูตารางกลุ่มเรียน →</button>' +
+          (i.teacherId ? '<button class="btn small ghost" data-see-teacher="' + esc(i.teacherId) + '">ไปที่ภาระงานของครู →</button>' : '') + '</div>';
+      } else if (i.teacherId || i.type === 'no-group') {
+        actions = '<div class="btns"><button class="btn small" data-see-teacher="' + esc(i.teacherId || '__none') + '">ไปแก้ที่ภาระงานสอน →</button></div>';
+      } else if (i.type === 'dup-teacher' || i.type === 'dup-subjectcode') {
+        actions = '<div class="btns"><button class="btn small" data-see-data="' + (i.type === 'dup-teacher' ? 'teachers' : 'subjects') + '">ไปแก้ที่ข้อมูล →</button></div>';
+      }
+      return '<section class="issue ' + i.level + '"><div class="issue-head"><span class="issue-tag">' + esc(ISSUE_LABEL[i.type] || i.type) + '</span>' +
+        '<h3>' + esc(i.title) + '</h3></div><p>' + esc(i.detail) + '</p>' + actions + '</section>';
+    };
+    el.innerHTML =
+      '<div class="page-head"><h1>ตรวจสอบข้อมูล</h1><p>ตรวจกลุ่มเรียนซ้ำ ลงวิชาซ้ำ เรียนซ้อนเวลา และชั่วโมงเกินเวลาที่มี — ตรวจใหม่ทุกครั้งที่แก้ข้อมูล</p></div>' +
+      '<div class="stats narrow">' +
+      '<div class="stat-tile ' + (errors.length ? 'bad' : 'ok') + '"><span>ต้องแก้</span><b>' + errors.length + '</b><small>เช่น กลุ่มรหัสซ้ำ เรียนซ้อนเวลา</small></div>' +
+      '<div class="stat-tile ' + (warns.length ? 'warn' : 'ok') + '"><span>ควรตรวจ</span><b>' + warns.length + '</b><small>อาจตั้งใจ หรืออาจผิด</small></div>' +
+      '<div class="stat-tile"><span>กลุ่มเรียน</span><b>' + state.groups.length + '</b><small>กลุ่มในระบบ</small></div></div>' +
+      (issues.length ? '<div class="issues">' + issues.map(card).join('') + '</div>'
+        : '<div class="card empty-state ok-state">' + ICON.check + '<b>ไม่พบปัญหา</b><span>ไม่มีกลุ่มเรียนซ้ำ ไม่มีวิชาซ้ำ และไม่มีกลุ่มเรียนซ้อนเวลา</span></div>');
+
+    $$('[data-keep]', el).forEach((b) => (b.onclick = () => {
+      const i = issues[Number(b.dataset.issue)];
+      const keep = b.dataset.keep;
+      const others = i.groupIds.filter((g) => g !== keep);
+      const names = others.map((g) => (idx.groups.get(g) || {}).name).join(', ');
+      if (!confirm('รวม "' + names + '" เข้ากับ "' + idx.groups.get(keep).name + '"?\nรายวิชาและตารางของกลุ่มที่รวมจะย้ายมาที่กลุ่มนี้ แล้วลบกลุ่มที่ซ้ำออก')) return;
+      others.forEach((g) => TT.mergeGroups(state, keep, g));
+      commit();
+      toast('รวมกลุ่มเรียนแล้ว');
+    }));
+    $$('[data-see-group]', el).forEach((b) => (b.onclick = () => { ui.view = 'group'; ui.viewId = b.dataset.seeGroup; ui.listFilter = ''; go('schedule'); }));
+    $$('[data-see-teacher]', el).forEach((b) => (b.onclick = () => { ui.assignTeacher = b.dataset.seeTeacher; ui.listFilter = ''; go('assign'); }));
+    $$('[data-see-data]', el).forEach((b) => (b.onclick = () => { ui.dataTab = b.dataset.seeData; ui.dataFilter = ''; go('data'); }));
   }
 
   /* ------------------------------- เงื่อนไข ------------------------------- */
@@ -574,20 +644,23 @@
     const deptName = (id) => (state.departments.find((d) => d.id === id) || {}).name || '';
     const rows = state[kind].filter((it) => !q || cfg.fields.some((f) =>
       String(f.type === 'dept' ? deptName(it[f.k]) : it[f.k] == null ? '' : it[f.k]).toLowerCase().includes(q)));
+    const dupIds = new Set();
+    if (kind === 'groups') TT.checkData(state).filter((i) => i.type === 'dup-group').forEach((i) => i.groupIds.forEach((g) => dupIds.add(g)));
     const body = $('#dbody');
     body.innerHTML = rows.map((it) =>
-      '<tr data-id="' + esc(it.id) + '">' + cfg.fields.map((f) => {
+      '<tr data-id="' + esc(it.id) + '"' + (dupIds.has(it.id) ? ' class="dup-row-t" title="กลุ่มเรียนนี้ซ้ำกับกลุ่มอื่น ดูที่ ตรวจสอบ"' : '') + '>' + cfg.fields.map((f) => {
         // พิมพ์ชื่อแผนกใหม่ได้เลย (สร้างให้อัตโนมัติ) หรือเลือกจากรายการที่มีอยู่
         if (f.type === 'dept') return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="พิมพ์หรือเลือก" value="' + esc(deptName(it[f.k])) + '" style="width:' + (f.w || 8) + 'em"></td>';
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
         return '<td><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
-      '<td class="c muted">' + (usageCount(kind, it.id) || '') + '</td>' +
+      '<td class="c muted">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + (usageCount(kind, it.id) || '') + '</td>' +
       '<td><button class="btn icon danger" data-del aria-label="ลบ">' + ICON.x + '</button></td></tr>').join('') ||
       '<tr><td colspan="9" class="empty-row">ยังไม่มีข้อมูล กด "+ เพิ่ม" หรือ "วางจาก Excel"</td></tr>';
     fillDeptList();
 
+    $$('[data-go-check]', body).forEach((b) => (b.onclick = () => go('check')));
     $$('tr[data-id]', body).forEach((tr) => {
       const item = state[kind].find((x) => x.id === tr.dataset.id);
       $$('[data-f]', tr).forEach((inp) => (inp.onchange = () => {
@@ -687,6 +760,8 @@
       }
     }
     commit();
+    const dups = kind === 'groups' ? TT.checkData(state).filter((i) => i.type === 'dup-group').length : 0;
+    if (dups) setTimeout(() => toast('นำเข้าแล้ว แต่พบกลุ่มเรียนซ้ำ ' + dups + ' ชุด กดปุ่ม "ตรวจสอบ" ด้านบนเพื่อรวม', true), 50);
     return 'เพิ่ม ' + added + ' รายการ, ปรับปรุง ' + updated + ' รายการ';
   }
 
@@ -1069,6 +1144,7 @@
     $$('[data-view]', el).forEach((b) => (b.onclick = () => { ui.view = b.dataset.view; ui.viewId = ''; ui.listFilter = ''; ui.selected = null; ui.termPick = null; ui.termSel = null; render(); }));
     $('#lfilter', el).oninput = (e) => { ui.listFilter = e.target.value; fillEntityList(blocks); };
     $$('[data-gorules]', el).forEach((b) => (b.onclick = () => go('rules')));
+    $$('[data-go-check]', el).forEach((b) => (b.onclick = () => go('check')));
     const tw = $('#to-work', el);
     if (tw) tw.onclick = () => { ui.assignTeacher = ent.id; ui.listFilter = ''; go('assign'); };
     const sc = $('#show-conf', el);
@@ -1102,7 +1178,7 @@
       '<div class="eg"><div class="eg-name">' + esc(name) + '</div>' + list.map((x) => {
         const st = stats.get(x.id) || { total: 0, placed: 0, pending: 0 };
         const badge = !st.total ? '' : st.pending
-          ? '<span class="badge warn">เหลือ ' + (ui.cal === 'term' ? st.total - st.placed + ' ชม.' : st.pending) + '</span>'
+          ? '<span class="badge warn" title="' + (ui.cal === 'term' ? 'เหลือ ' + (st.total - st.placed) + ' ชั่วโมง' : 'เหลือ ' + st.pending + ' ก้อน') + '">เหลือ ' + (ui.cal === 'term' ? st.total - st.placed : st.pending) + '</span>'
           : '<span class="badge ok">ครบ</span>';
         return '<button class="eitem' + (x.id === ui.viewId ? ' active' : '') + '" data-ent="' + esc(x.id) + '">' +
           '<span class="ei-text"><span class="ei-name">' + esc(v.name(x)) + '</span><span class="ei-sub">' +
@@ -1247,6 +1323,7 @@
         : '<p class="ok-line">' + ICON.check + 'ไม่มีคาบชนกัน</p>') +
       (ui.lastUnplaced.length ? '<div class="bad-box"><div>' + ICON.info + 'จัดอัตโนมัติแล้ว แต่วางไม่ได้ ' + ui.lastUnplaced.length + ' ก้อน (เวลาเต็ม) ดูรายชื่อที่มีป้าย "เหลือ"</div>' +
         '<button class="linkish" id="dismiss-un">ปิด</button></div>' : '') +
+      (TT.checkData(state).length ? '<button class="linkish" data-go-check>' + ICON.info + 'มีเรื่องที่ควรตรวจ ' + TT.checkData(state).length + ' เรื่อง (กลุ่มซ้ำ ฯลฯ) →</button>' : '') +
       (ui.cal === 'term' ? '' : '<button class="btn small ghost" id="clear-all">ล้างคาบที่ไม่ล็อกทั้งหมด</button>') +
       '</section>';
   }

@@ -808,6 +808,140 @@
     return { ok: true };
   }
 
+  /* ------------------------------ ตรวจสอบข้อมูล ------------------------------ */
+
+  /** ชื่อสำหรับเทียบซ้ำ: ตัดช่องว่าง จุด ขีด และตัวพิมพ์ เช่น "ปวช.3 ช่างยนต์67" = "ปวช3ช่างยนต์ 67" */
+  function looseName(x) {
+    return String(x || '').toLowerCase().replace(/[\s.\-_/()]+/g, '');
+  }
+
+  function dupBuckets(list, keyFn) {
+    const m = new Map();
+    for (const x of list) {
+      const k = keyFn(x);
+      if (!k) continue;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(x);
+    }
+    return [...m.values()].filter((xs) => xs.length > 1);
+  }
+
+  /**
+   * ตรวจข้อมูลทั้งหมด เน้นกลุ่มเรียน: ซ้ำในรายชื่อ, ลงวิชาเดียวกันซ้ำ, เรียนชนกัน, ชั่วโมงเกินเวลาที่มี
+   * คืนค่า [{ level: 'error'|'warn', type, title, detail, groupIds?, teacherId?, assignmentIds? }]
+   */
+  function checkData(state) {
+    const idx = indexState(state);
+    const issues = [];
+    const gname = (g) => (g.name || '(ไม่มีชื่อ)') + (g.code ? ' (' + g.code + ')' : '');
+
+    // 1) กลุ่มเรียนซ้ำในรายชื่อ
+    const byCode = dupBuckets(state.groups, (g) => String(g.code || '').trim());
+    const seen = new Set();
+    for (const gs of byCode) {
+      gs.forEach((g) => seen.add(g.id));
+      issues.push({ level: 'error', type: 'dup-group', title: 'กลุ่มเรียนรหัสซ้ำ: ' + String(gs[0].code).trim(),
+        detail: gs.map(gname).join(' · '), groupIds: gs.map((g) => g.id) });
+    }
+    for (const gs of dupBuckets(state.groups, (g) => looseName(g.name))) {
+      if (gs.every((g) => seen.has(g.id))) continue;
+      issues.push({ level: 'warn', type: 'dup-group', title: 'ชื่อกลุ่มเรียนซ้ำกัน (รหัสต่างกัน)',
+        detail: gs.map(gname).join(' · ') + ' — ถ้าเป็นกลุ่มเดียวกันให้รวม ถ้าคนละกลุ่มให้ตั้งชื่อให้ต่างกัน', groupIds: gs.map((g) => g.id) });
+    }
+
+    // 2) กลุ่มเรียนลงวิชาเดียวกันซ้ำ
+    const pairs = new Map();
+    for (const a of state.assignments) {
+      if (!a.subjectId) continue;
+      for (const g of a.groupIds || []) {
+        const k = g + '|' + a.subjectId;
+        if (!pairs.has(k)) pairs.set(k, []);
+        pairs.get(k).push(a);
+      }
+    }
+    for (const [k, as] of pairs) {
+      if (as.length < 2) continue;
+      const [gid, sid] = k.split('|');
+      const g = idx.groups.get(gid);
+      const sj = idx.subjects.get(sid);
+      const who = as.map((a) => (idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู').join(', ');
+      issues.push({ level: 'warn', type: 'dup-subject', title: 'กลุ่ม ' + (g ? g.name : '?') + ' ลงวิชา ' + (sj ? sj.code : '') + ' ซ้ำ ' + as.length + ' รายการ',
+        detail: (sj ? sj.name : '') + ' · ผู้สอน: ' + who + ' — ถ้าตั้งใจแบ่งคาบ ให้ใช้รูปแบบคาบ (เช่น 2+2) ในรายการเดียว',
+        groupIds: [gid], assignmentIds: as.map((a) => a.id), teacherId: as[0].teacherId });
+    }
+
+    // 3) กลุ่มเรียนเรียนชนกัน (รายสัปดาห์ / ทั้งเทอม)
+    const conf = findConflicts(state);
+    const byGroup = new Map();
+    for (const c of conf.list) {
+      if (!c.resource || c.resource[0] !== 'g') continue;
+      const gid = c.resource.slice(2);
+      if (!byGroup.has(gid)) byGroup.set(gid, []);
+      byGroup.get(gid).push(state.settings.days[c.day] + ' คาบ ' + c.periods.join(','));
+    }
+    for (const [gid, where] of byGroup) {
+      const g = idx.groups.get(gid);
+      issues.push({ level: 'error', type: 'group-clash', title: 'กลุ่ม ' + (g ? g.name : '?') + ' มีเรียนซ้อนเวลากัน ' + where.length + ' จุด',
+        detail: where.slice(0, 5).join(' · ') + (where.length > 5 ? ' …' : ''), groupIds: [gid] });
+    }
+
+    // 4) ชั่วโมงรายสัปดาห์ของกลุ่มเกินเวลาที่มีให้จัด
+    const P = periods(state.settings).length;
+    const blocked = blockedCells(state.settings);
+    const capacity = state.settings.days.length * P - blocked.size;
+    const need = new Map();
+    for (const a of state.assignments) {
+      if (isTerm(a)) continue;
+      const h = assignmentHours(a, idx.subjects);
+      for (const g of a.groupIds || []) need.set(g, (need.get(g) || 0) + h);
+    }
+    for (const g of state.groups) {
+      const free = capacity - (g.unavailable || []).filter((k) => !blocked.has(k)).length;
+      const n = need.get(g.id) || 0;
+      if (n > free) {
+        issues.push({ level: 'error', type: 'group-overload', title: 'กลุ่ม ' + g.name + ' ชั่วโมงเกินเวลาที่มี',
+          detail: 'ต้องเรียน ' + n + ' ชม./สัปดาห์ แต่มีเวลาให้จัด ' + free + ' ชม. (ไม่รวมวันห้ามจัด/เวลาไม่ว่าง)', groupIds: [g.id] });
+      }
+    }
+
+    // 5) รายการที่ไม่มีกลุ่มเรียน / ข้อมูลอื่นซ้ำ
+    for (const a of state.assignments) {
+      if (!(a.groupIds || []).length) {
+        const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+        issues.push({ level: 'warn', type: 'no-group', title: 'ยังไม่ได้เลือกกลุ่มเรียน: ' + (sj ? sj.code + ' ' + sj.name : a.title || 'ไม่มีชื่อ'),
+          detail: 'ผู้สอน: ' + ((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู'), assignmentIds: [a.id], teacherId: a.teacherId });
+      }
+    }
+    for (const ts of dupBuckets(state.teachers, (t) => looseName(t.name))) {
+      issues.push({ level: 'warn', type: 'dup-teacher', title: 'ชื่อครูซ้ำ', detail: ts.map((t) => t.name).join(' · ') });
+    }
+    for (const ss of dupBuckets(state.subjects, (x) => String(x.code || '').trim())) {
+      issues.push({ level: 'warn', type: 'dup-subjectcode', title: 'รหัสวิชาซ้ำ: ' + ss[0].code, detail: ss.map((x) => x.name).join(' · ') });
+    }
+    const rank = { error: 0, warn: 1 };
+    return issues.sort((x, y) => rank[x.level] - rank[y.level]);
+  }
+
+  /** รวมกลุ่มเรียนที่ซ้ำ: ย้ายทุกอย่างของ dropId ไปที่ keepId แล้วลบ dropId */
+  function mergeGroups(state, keepId, dropId) {
+    const keep = state.groups.find((g) => g.id === keepId);
+    const drop = state.groups.find((g) => g.id === dropId);
+    if (!keep || !drop || keep === drop) return false;
+    for (const k of ['level', 'major', 'size', 'advisor', 'name', 'code']) if (!keep[k] && drop[k]) keep[k] = drop[k];
+    keep.unavailable = [...new Set([...(keep.unavailable || []), ...(drop.unavailable || [])])];
+    const keepRec = new Set(state.assignments.filter((a) => a.recurringId && a.groupIds.includes(keepId)).map((a) => a.recurringId));
+    const removed = new Set();
+    for (const a of state.assignments) {
+      if (!a.groupIds.includes(dropId)) continue;
+      if (a.recurringId && keepRec.has(a.recurringId)) { removed.add(a.id); continue; }
+      a.groupIds = [...new Set(a.groupIds.map((g) => (g === dropId ? keepId : g)))];
+    }
+    state.assignments = state.assignments.filter((a) => !removed.has(a.id));
+    state.placements = state.placements.filter((p) => !removed.has(p.assignmentId));
+    state.groups = state.groups.filter((g) => g !== drop);
+    return true;
+  }
+
   /* ------------------------------ กิจกรรมประจำ ------------------------------ */
 
   const normName = (x) => String(x || '').replace(/\s+/g, ' ').trim();
@@ -1001,6 +1135,9 @@
   const TT = {
     ALL_DAYS,
     defaultRecurring,
+    looseName,
+    checkData,
+    mergeGroups,
     isTerm,
     hoursPerDay,
     termTotal,

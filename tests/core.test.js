@@ -241,3 +241,45 @@ test('ตารางทั้งเทอม: เลื่อนเวลาไ
   assert.strictEqual(TT.shiftSession(s, r.session.id, -2).ok, true);
   assert.strictEqual(r.session.start, 8);
 });
+
+test('ตรวจสอบกลุ่มเรียนซ้ำ: รหัสซ้ำ ชื่อซ้ำ ลงวิชาซ้ำ เรียนชนกัน ชั่วโมงเกิน และรวมกลุ่ม', () => {
+  const s = mini();
+  s.groups.push({ id: 'g1b', code: '1', name: 'กลุ่ม1', unavailable: [] });           // รหัสซ้ำกับ g1
+  s.groups.push({ id: 'g9', code: '9', name: 'กลุ่ม 2', unavailable: [] });           // ชื่อซ้ำกับ g2 (รหัสต่าง)
+  s.assignments.push(
+    { id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '2' },
+    { id: 'a2', teacherId: 't2', subjectId: 's1', groupIds: ['g1'], blocks: '2' },   // g1 ลงวิชา s1 ซ้ำ
+    { id: 'a3', teacherId: 't2', subjectId: 's2', groupIds: ['g1b'], blocks: '4' },
+  );
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 1 }, { assignmentId: 'a2', blockIndex: 0, day: 0, start: 2 });
+  const types = TT.checkData(s).map((i) => i.type + ':' + i.level);
+  assert.ok(types.includes('dup-group:error'), 'รหัสซ้ำ');
+  assert.ok(types.includes('dup-group:warn'), 'ชื่อซ้ำรหัสต่าง');
+  assert.ok(types.includes('dup-subject:warn'), 'ลงวิชาซ้ำ');
+  assert.ok(types.includes('group-clash:error'), 'เรียนชนกัน');
+  assert.strictEqual(TT.looseName('ปวช.3 ช่างยนต์67'), TT.looseName('ปวช3ช่างยนต์ 67'));
+
+  // ชั่วโมงเกิน: มี 1 วัน 2 คาบ แต่ต้องเรียน 4 ชม.
+  const t = mini();
+  t.settings.days = ['จันทร์'];
+  t.settings.columns = t.settings.columns.slice(0, 3);
+  t.assignments.push({ id: 'x', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '2+2' });
+  assert.ok(TT.checkData(t).some((i) => i.type === 'group-overload'));
+
+  // รวมกลุ่มซ้ำ: ภาระงานของ g1b ย้ายไป g1
+  assert.strictEqual(TT.mergeGroups(s, 'g1', 'g1b'), true);
+  assert.ok(!s.groups.some((g) => g.id === 'g1b'));
+  assert.deepStrictEqual(s.assignments.find((a) => a.id === 'a3').groupIds, ['g1']);
+  assert.ok(!TT.checkData(s).some((i) => i.type === 'dup-group' && i.level === 'error'));
+});
+
+test('ข้อมูลตัวอย่างตารางทั้งเทอม: ครบตามที่ตั้ง ไม่ชนกัน และจับกลุ่มซ้ำได้', () => {
+  const s = sampleState(TT);
+  const term = s.assignments.filter(TT.isTerm).map((a) => TT.termStatus(s, a));
+  assert.strictEqual(term.length, 3);
+  assert.strictEqual(term.filter((x) => x.remaining === 0).length, 2);
+  assert.ok(term.some((x) => x.remaining > 0), 'มีวิชาที่ยังวางไม่ครบให้ลองต่อ');
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  const dup = TT.checkData(s).filter((i) => i.type === 'dup-group');
+  assert.strictEqual(dup.length, 1);
+});

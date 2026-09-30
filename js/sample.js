@@ -22,10 +22,12 @@
 
     const dGen = add(s.departments, 'd', { name: 'สามัญสัมพันธ์', head: 'ชื่อหัวหน้าแผนกสามัญ' });
     const dMech = add(s.departments, 'd', { name: 'ช่างยนต์', head: 'ชื่อหัวหน้าแผนกช่างยนต์' });
+    const dIT = add(s.departments, 'd', { name: 'เทคโนโลยีสารสนเทศ', head: 'ชื่อหัวหน้าแผนกสารสนเทศ' });
 
     const t1 = add(s.teachers, 't', { name: 'ครูตัวอย่าง คณิตศาสตร์', qualification: 'ศึกษาศาสตรบัณฑิต', departmentId: dGen.id, major: 'คณิตศาสตร์', duty: '', unavailable: [] });
     const t2 = add(s.teachers, 't', { name: 'ครูตัวอย่าง ภาษาไทย', qualification: 'ศึกษาศาสตรบัณฑิต', departmentId: dGen.id, major: 'ภาษาไทย', duty: '', unavailable: [] });
     const t3 = add(s.teachers, 't', { name: 'ครูตัวอย่าง ช่างยนต์', qualification: 'ครุศาสตร์อุตสาหกรรมบัณฑิต', departmentId: dMech.id, major: 'ช่างยนต์', duty: 'งานทะเบียน', unavailable: ['0|1', '0|2', '0|3'] });
+    const t4 = add(s.teachers, 't', { name: 'ครูตัวอย่าง คอมพิวเตอร์', qualification: 'วิทยาศาสตรบัณฑิต', departmentId: dIT.id, major: 'เทคโนโลยีสารสนเทศ', duty: '', unavailable: [] });
 
     const subj = {};
     for (const [code, name, t, p, n] of [
@@ -39,6 +41,8 @@
       ['20000-1101', 'ภาษาไทยพื้นฐาน', 1, 2, 2],
       ['30000-1101', 'ทักษะภาษาไทยเชิงวิชาชีพ', 1, 2, 2],
       ['20101-2001', 'งานเครื่องยนต์เบื้องต้น', 1, 6, 3],
+      ['20204-2004', 'ระบบปฏิบัติการเบื้องต้น', 1, 2, 2],
+      ['30204-2001', 'การเขียนโปรแกรมเว็บ', 1, 3, 2],
     ]) subj[code] = add(s.subjects, 's', { code, name, t, p, n });
 
     const grp = {};
@@ -57,13 +61,17 @@
       ['683010101', 'ส.1 เครื่องกล 68 สายตรง', 'ปวส.1/1', 'เทคนิคเครื่องกล', ''],
       ['683010102', 'ส.1 เครื่องกล 68 ม.6', 'ปวส.1/2', 'เทคนิคเครื่องกล', ''],
       ['673011102', 'ส.2 เทคอุตฯ ม.6', 'ปวส.2/2', 'เทคนิคอุตสาหกรรม', t1.name],
+      ['673190503', 'ส.2 แอนิเมชัน 67 ทวิ', 'ปวส.2/3', 'คอมพิวเตอร์เกมและแอนิเมชัน', t4.name],
     ]) grp[code] = add(s.groups, 'g', { code, name, level, major, size: '', advisor, unavailable: [] });
+    // ตัวอย่างข้อมูลผิด: วางรายชื่อกลุ่มซ้ำ (ชื่อเขียนต่างกันนิดหน่อย) ให้หน้า "ตรวจสอบ" จับได้ และกดรวมได้
+    add(s.groups, 'g', { code: '672190101', name: 'ปวช.2สารสนเทศ67', level: 'ปวช.2/1', major: 'เทคโนโลยีสารสนเทศ', size: '', advisor: '', unavailable: [] });
 
     const r4 = add(s.rooms, 'r', { name: 'ห้องเรียนสามัญ 4', shared: false });
     const r5 = add(s.rooms, 'r', { name: 'ห้องเรียนสามัญ 5', shared: false });
     const rWs = add(s.rooms, 'r', { name: 'โรงฝึกงานช่างยนต์', shared: false });
     const rTK = add(s.rooms, 'r', { name: 'สถานประกอบการ ทค.', shared: true });
     const rTO = add(s.rooms, 'r', { name: 'สถานประกอบการ ทอ.', shared: true });
+    const rCom = add(s.rooms, 'r', { name: 'ห้องปฏิบัติการคอมพิวเตอร์ 1', shared: false });
 
     const assign = (teacher, subjectCode, groupCodes, room, blocks, extra) =>
       add(s.assignments, 'a', Object.assign({
@@ -102,8 +110,21 @@
     assign(t3, '20101-2001', ['682010101'], rWs, '7', { blockCourse: true });
     assign(t3, null, ['682010101'], null, '1', { title: 'Home Room' });
 
+    // ตารางทั้งเทอมของครูคอมพิวเตอร์
+    // - ระบบปฏิบัติการ 3 ชม. × 18 = 54 ชม. วันละ 6 ชม. เริ่มคาบ 4 (12:00) = 9 วัน เริ่มสัปดาห์ที่ 3
+    const osA = assign(t4, '20204-2004', ['672190101'], rCom, '3', { plan: 'term', hoursPerDay: 6, termStart: 4 });
+    // - เขียนโปรแกรมเว็บ 4 ชม. × 18 = 72 ชม. วันละ 4 ชม. ช่วงเย็น 17:00–21:00 = 18 วัน (วางไว้ถึงสัปดาห์ที่ 3 ยังไม่ครบ ลองกด "เติม" ต่อได้)
+    const webA = assign(t4, '30204-2001', ['673190501', '673190502'], rCom, '4', { plan: 'term', hoursPerDay: 4, termStart: 9 });
+    // - ภาษาไทยเชิงวิชาชีพของครูภาษาไทย (ตั้งเป็นทั้งเทอมไว้ด้านบน)
+    const langA = s.assignments.find((a) => a.subjectId === subj['30000-1101'].id);
+
     // Home Room ทุกวันพุธ คาบ 1 ของทุกกลุ่ม (ใช้ภาระงาน Home Room ที่มีอยู่แล้วต่อ)
     TT.applyRecurring(s, s.settings.recurring[0].id);
+
+    TT.fillTerm(s, langA.id, 1);
+    TT.fillTerm(s, osA.id, 3);
+    TT.fillTerm(s, webA.id, 1);
+    s.sessions = s.sessions.filter((x) => x.assignmentId !== webA.id || x.week <= 3);
     return s;
   }
 
