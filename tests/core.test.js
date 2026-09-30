@@ -213,3 +213,31 @@ test('ตารางทั้งเทอม: วิทย์ 54 ชม. วั
   TT.sanitizePlacements(s);
   assert.strictEqual(s.sessions.length, 0);
 });
+
+test('คลิกคาบท้าย ๆ (หลัง 20:00): ระบบเลื่อนคาบเริ่มให้ก้อนพอดีกับคาบสุดท้าย', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '3' });
+  const a = s.assignments[0];
+  assert.strictEqual(TT.checkPlacement(s, a, 0, 0, 12).ok, false);
+  assert.match(TT.checkPlacement(s, a, 0, 0, 12).reasons[0], /เลยคาบสุดท้าย \(22:00\)/);
+  assert.strictEqual(TT.snapStart(s, a, 0, 0, 12), 11, 'คลิก 20:00 → วาง 19:00–22:00');
+  assert.strictEqual(TT.snapStart(s, a, 0, 0, 13), 11);
+  assert.strictEqual(TT.snapStart(s, a, 0, 0, 5), 5, 'ถ้าวางที่จุดคลิกได้ ใช้จุดคลิก');
+  // คาบ 3 (10:00) ก้อน 3 คาบคร่อมพักไม่ได้ → เลื่อนเป็นคาบ 1–3
+  assert.strictEqual(TT.snapStart(s, a, 0, 0, 3), 1);
+  // ถ้ามีคาบอื่นอยู่ 19:00 → เลือกตำแหน่งที่ไม่ชนก่อน ถ้าไม่มีคืนตำแหน่งที่วางได้ (ชน)
+  s.assignments.push({ id: 'a2', teacherId: 't1', subjectId: 's1', groupIds: ['g2'], blocks: '1' });
+  s.placements.push({ assignmentId: 'a2', blockIndex: 0, day: 0, start: 11 });
+  assert.strictEqual(TT.snapStart(s, a, 0, 0, 12), 11);
+  assert.strictEqual(TT.checkPlacement(s, a, 0, 0, 11).ok, false);
+});
+
+test('ตารางทั้งเทอม: เลื่อนเวลาไปช่วงค่ำได้ถึงคาบสุดท้าย', () => {
+  const s = mini();
+  s.assignments.push({ id: 'term', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '', plan: 'term', hoursPerDay: 4, termStart: 10 });
+  const r = TT.addSession(s, 'term', 1, 0);
+  assert.strictEqual(r.session.start, 10, 'เริ่มคาบ 10 (18:00) ตามที่ตั้งไว้');
+  assert.strictEqual(TT.shiftSession(s, r.session.id, 1).ok, false, '18:00+4 ชม. = 22:00 เลื่อนต่อไม่ได้');
+  assert.strictEqual(TT.shiftSession(s, r.session.id, -2).ok, true);
+  assert.strictEqual(r.session.start, 8);
+});

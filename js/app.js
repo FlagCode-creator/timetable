@@ -1269,10 +1269,20 @@
     if (!a || a.recurringId) return;
     const idx = TT.indexState(state);
     const cache = { idx, pers: TT.periods(state.settings), occ: TT.buildOccupancy(state, idx, key), blocked: TT.blockedCells(state.settings) };
+    const len = TT.assignmentBlocks(a, idx.subjects)[blockIndex];
     $$('#gridwrap td.empty[data-p]').forEach((td) => {
-      const r = TT.checkPlacement(state, a, blockIndex, Number(td.dataset.d), Number(td.dataset.p), cache);
-      td.classList.add(r.ok ? 'can' : r.span ? 'clash' : 'nospan');
-      td.title = r.ok ? 'วางได้' : r.reasons.join('\n');
+      const d = Number(td.dataset.d);
+      const p = Number(td.dataset.p);
+      const st = TT.snapStart(state, a, blockIndex, d, p, cache);
+      if (st == null) {
+        td.classList.add('nospan');
+        td.title = TT.checkPlacement(state, a, blockIndex, d, p, cache).reasons.join('\n');
+        return;
+      }
+      const r = TT.checkPlacement(state, a, blockIndex, d, st, cache);
+      const span = 'คาบ ' + st + (len > 1 ? '–' + (st + len - 1) : '');
+      td.classList.add(r.ok ? 'can' : 'clash');
+      td.title = (r.ok ? 'วางได้: ' : 'ชน: ') + span + (r.ok ? '' : '\n' + r.reasons.join('\n'));
     });
   }
 
@@ -1288,8 +1298,11 @@
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
     if (a.recurringId) { toast('กิจกรรมประจำย้ายได้ที่หน้าเงื่อนไข', true); return; }
+    // คลิก/วางที่ไหนก็ได้ในช่วงของก้อน ระบบเลื่อนคาบเริ่มให้พอดี (เช่น ก้อน 3 คาบ คลิก 20:00 → 19:00–22:00)
+    const snapped = TT.snapStart(state, a, blockIndex, day, start);
+    if (snapped == null) { toast(TT.checkPlacement(state, a, blockIndex, day, start).reasons[0], true); return; }
+    start = snapped;
     const r = TT.checkPlacement(state, a, blockIndex, day, start);
-    if (!r.span) { toast(r.reasons[0], true); return; }
     if (!r.ok && !confirm('คาบนี้จะชนกัน:\n- ' + r.reasons.join('\n- ') + '\n\nต้องการวางต่อไหม?')) return;
     const old = TT.findPlacement(state, assignmentId, blockIndex);
     state.placements = state.placements.filter((p) => p !== old);
@@ -1410,7 +1423,9 @@
     if (x) {
       const a = idx.assignments.get(x.assignmentId);
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
-      hint = 'เลือก <b>' + esc(sj ? sj.code : a.title) + '</b> สัปดาห์ที่ ' + x.week + ' วัน' + esc(state.settings.days[x.day]) + ' คาบ ' + x.start + '–' + (x.start + x.len - 1) + ' (' + x.len + ' ชม.) — ลากไปวันอื่นเพื่อย้าย';
+      const pers = TT.periods(state.settings);
+      hint = 'เลือก <b>' + esc(sj ? sj.code : a.title) + '</b> สัปดาห์ที่ ' + x.week + ' วัน' + esc(state.settings.days[x.day]) + ' คาบ ' + x.start + '–' + (x.start + x.len - 1) +
+        ' (' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + ', ' + x.len + ' ชม.) — ใช้ "เลื่อนเวลา" เพื่อย้ายช่วงเวลา หรือลากไปวันอื่น';
     } else if (ui.termPick) {
       const a = idx.assignments.get(ui.termPick);
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
@@ -1418,6 +1433,9 @@
       hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> วันละ ' + st.hpd + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกวันที่มีกรอบสีเขียวต่อไปเรื่อย ๆ จนครบ' : '';
     } else hint = 'เลือกวิชาทางขวา แล้วคลิกวันในตาราง (หรือลากวาง) วันละ 1 ครั้งจนครบชั่วโมง · คลิกช่องที่วางแล้วเพื่อปรับ';
     return '<div class="tools" role="toolbar" aria-label="เครื่องมือตารางทั้งเทอม">' +
+      '<div class="tool-group"><span class="tg-label">เลื่อนเวลา</span>' +
+      '<button class="btn small" data-tsh="-1"' + dis(x && x.start > 1) + ' aria-label="เลื่อนให้เร็วขึ้น 1 คาบ">← เร็วขึ้น</button>' +
+      '<button class="btn small" data-tsh="1"' + dis(x) + ' aria-label="เลื่อนให้ช้าลง 1 คาบ">ช้าลง →</button></div>' +
       '<div class="tool-group"><span class="tg-label">ชั่วโมงวันนี้</span>' +
       '<button class="btn small" data-ts="1"' + dis(x) + ' aria-label="เพิ่ม 1 ชั่วโมง">+1</button>' +
       '<button class="btn small" data-ts="-1"' + dis(x && x.len > 1) + ' aria-label="ลด 1 ชั่วโมง">−1</button></div>' +
@@ -1622,6 +1640,13 @@
       commit();
       const bad = TT.findConflicts(state).byPlacement.get('S:' + ui.termSel);
       if (bad) toast('ปรับแล้ว แต่ชนกัน: ' + [...bad][0], true);
+    }));
+    $$('[data-tsh]', el).forEach((b) => (b.onclick = () => {
+      const r = TT.shiftSession(state, ui.termSel, Number(b.dataset.tsh));
+      if (!r.ok) { toast(r.reason, true); return; }
+      commit();
+      const bad = TT.findConflicts(state).byPlacement.get('S:' + ui.termSel);
+      if (bad) toast('เลื่อนแล้ว แต่ชนกัน: ' + [...bad][0], true);
     }));
     const rm = $('#ts-remove', el);
     if (rm) rm.onclick = () => { state.sessions = state.sessions.filter((x) => x.id !== ui.termSel); ui.termSel = null; commit(); };

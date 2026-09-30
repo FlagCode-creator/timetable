@@ -320,6 +320,31 @@
     return ent && ent.unavailable ? new Set(ent.unavailable) : null;
   }
 
+  function spanReason(pers, start, len) {
+    const last = pers[pers.length - 1];
+    if (start + len - 1 > pers.length) {
+      return 'ก้อนนี้ยาว ' + len + ' คาบ ถ้าเริ่มคาบ ' + start + ' จะเลยคาบสุดท้าย (' + (last ? last.end : '') + ') — เลือกคาบที่เริ่มเร็วขึ้น แบ่งเวลา หรือเพิ่มคาบที่หน้าเงื่อนไข';
+    }
+    return 'ก้อนนี้ยาว ' + len + ' คาบ ถ้าเริ่มคาบ ' + start + ' จะคร่อมช่วงพัก (ถ้าต้องการเรียนข้ามพัก ให้ติ๊ก Block Course)';
+  }
+
+  /**
+   * ผู้ใช้คลิกคาบ p: หาคาบเริ่มที่ทำให้ก้อนครอบคาบ p และไม่เลยขอบ/คร่อมพัก
+   * ลองเริ่มที่ p ก่อน แล้วถอยทีละคาบ เลือกตำแหน่งที่ไม่ชนก่อน ถ้าไม่มีเลยคืนตำแหน่งแรกที่วางได้ (ชน)
+   */
+  function snapStart(state, a, blockIndex, day, p, cache) {
+    const idx = (cache && cache.idx) || indexState(state);
+    const pers = (cache && cache.pers) || periods(state.settings);
+    const len = assignmentBlocks(a, idx.subjects)[blockIndex];
+    let fallback = null;
+    for (let st = p; st >= Math.max(1, p - len + 1); st--) {
+      if (!canSpan(pers, st, len, !!a.blockCourse)) continue;
+      if (checkPlacement(state, a, blockIndex, day, st, cache).ok) return st;
+      if (fallback == null) fallback = st;
+    }
+    return fallback;
+  }
+
   /**
    * ตรวจว่าถ้าวางก้อน (assignment, len) ที่ day/start จะชนอะไรบ้าง
    * คืนค่า { ok, span, reasons[] }
@@ -331,7 +356,7 @@
     const pers = (cache && cache.pers) || periods(state.settings);
     const len = assignmentBlocks(a, idx.subjects)[blockIndex];
     if (!canSpan(pers, start, len, !!a.blockCourse)) {
-      return { ok: false, span: false, reasons: ['วางไม่ได้: เกินคาบสุดท้าย หรือคร่อมช่วงพัก (ถ้าต้องการเรียนข้ามพัก ให้ติ๊ก Block Course)'] };
+      return { ok: false, span: false, reasons: [spanReason(pers, start, len)] };
     }
     const reasons = new Set();
     const blocked = (cache && cache.blocked) || blockedCells(state.settings);
@@ -761,13 +786,24 @@
     return { added, remaining: termStatus(state, a).remaining };
   }
 
+  /** เลื่อนเวลา session ทั้งก้อน (delta คาบ) */
+  function shiftSession(state, sessionId, delta) {
+    const x = state.sessions.find((y) => y.id === sessionId);
+    if (!x) return { ok: false, reason: 'ไม่พบ' };
+    const start = x.start + delta;
+    const pers = periods(state.settings);
+    if (!canSpan(pers, start, x.len, true)) return { ok: false, reason: start < 1 ? 'เป็นคาบแรกของวันแล้ว' : 'เลื่อนต่อไม่ได้ จะเลยคาบสุดท้าย (' + pers[pers.length - 1].end + ')' };
+    x.start = start;
+    return { ok: true };
+  }
+
   /** เพิ่ม/ลดชั่วโมงของ session ที่ท้าย */
   function resizeSession(state, sessionId, delta) {
     const x = state.sessions.find((y) => y.id === sessionId);
     if (!x) return { ok: false, reason: 'ไม่พบ' };
     const len = x.len + delta;
     if (len < 1) return { ok: false, reason: 'ต้องมีอย่างน้อย 1 ชั่วโมง' };
-    if (!canSpan(periods(state.settings), x.start, len, true)) return { ok: false, reason: 'เกินคาบสุดท้ายของวัน' };
+    if (!canSpan(periods(state.settings), x.start, len, true)) return { ok: false, reason: 'เลยคาบสุดท้ายของวัน ลองเลื่อนเวลาให้เร็วขึ้นก่อน' };
     x.len = len;
     return { ok: true };
   }
@@ -970,6 +1006,8 @@
     termTotal,
     termStatus,
     checkSession,
+    snapStart,
+    shiftSession,
     addSession,
     fillTerm,
     resizeSession,
