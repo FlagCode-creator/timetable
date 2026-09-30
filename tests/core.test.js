@@ -312,3 +312,23 @@ test('ตารางทั้งเทอมแบบ 18 ตาราง: ค�
   assert.deepStrictEqual([r.session.week, r.session.start, r.session.len], [5, 7, 4]);
   assert.strictEqual(TT.findConflicts(s).list.length, 0);
 });
+
+test('ตารางทั้งเทอม: แบ่งหัว/ท้าย และ +1/−1 ที่หัวหรือท้าย (ไม่เกินชั่วโมงทั้งเทอม)', () => {
+  const s = mini();
+  s.assignments.push({ id: 'term', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '', plan: 'term', hoursPerDay: 4 });  // 2 ชม. × 18 = 36
+  const r = TT.addSession(s, 'term', 3, 1, { start: 5, len: 4 });
+  const id = r.session.id;
+  const tail = TT.splitSession(s, id, 1);
+  assert.deepStrictEqual([r.session.start, r.session.len, tail.start, tail.len, tail.week, tail.day], [5, 1, 6, 3, 3, 1]);
+  assert.strictEqual(TT.resizeSession(s, id, 1, 0).ok, true, 'หัว +1');
+  assert.deepStrictEqual([r.session.start, r.session.len], [4, 2]);
+  assert.strictEqual(TT.resizeSession(s, id, -1, 0).ok, true, 'หัว −1');
+  assert.deepStrictEqual([r.session.start, r.session.len], [5, 1]);
+  assert.strictEqual(TT.resizeSession(s, id, 0, -1).ok, false, 'เหลือ 1 ชม. ลดไม่ได้');
+  // เติมจนครบ 36 แล้วเพิ่มไม่ได้
+  TT.fillTerm(s, 'term', 4);
+  assert.strictEqual(TT.termStatus(s, s.assignments[0]).remaining, 0);
+  const res = TT.resizeSession(s, id, 0, 1);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /ครบชั่วโมงทั้งเทอม/);
+});

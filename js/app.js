@@ -127,6 +127,7 @@
     $('#hdr-term').textContent = 'ภาคเรียน ' + state.settings.semester + '/' + state.settings.year;
 
     const main = $('#main');
+    const keepY = window.scrollY;
     main.className = 'tab-' + ui.tab;
     const intro = isEmpty() && ui.tab !== 'rules' && ui.tab !== 'check'
       ? '<div class="notice">' + ICON.info + '<span>ยังไม่มีข้อมูล เริ่มกรอกที่ <b>ข้อมูล</b> หรือลองใช้ข้อมูลตัวอย่างก่อน</span><button class="btn small" id="load-sample">โหลดข้อมูลตัวอย่าง</button></div>'
@@ -136,6 +137,8 @@
     fn($('#view'));
     const ls = $('#load-sample');
     if (ls) ls.onclick = loadSample;
+    // วาดใหม่แล้วให้อยู่ตำแหน่งเดิม (เช่น กำลังทำสัปดาห์ที่ 10 จะไม่เด้งกลับขึ้นบน)
+    if (window.scrollY !== keepY) window.scrollTo(0, keepY);
   }
 
   function go(tab) {
@@ -1139,8 +1142,8 @@
       '<label class="search">' + ICON.search + '<input type="search" id="lfilter" aria-label="ค้นหา" placeholder="ค้นหา' + v.label + '" value="' + esc(ui.listFilter) + '"></label>' +
       '<div class="elist" id="elist"></div></aside>' +
       '<section class="sched-main">' + (ent
-        ? schedHeader(ent) + (term ? termToolbar() + termStrip(ent) + '<div class="grid-card" id="termwrap">' + termGrid(ent, conflicts) + '</div>'
-          : weekToolbar(ent) + '<div class="grid-card" id="gridwrap">' + gridFor(ent, conflicts) + '</div>' + legend())
+        ? schedHeader(ent) + (term ? '<div class="sticky-tools">' + termToolbar() + termStrip(ent) + '</div><div class="grid-card" id="termwrap">' + termGrid(ent, conflicts) + '</div>'
+          : '<div class="sticky-tools">' + weekToolbar(ent) + '</div><div class="grid-card" id="gridwrap">' + gridFor(ent, conflicts) + '</div>' + legend())
         : '<div class="card empty-state">ยังไม่มี' + v.label + ' เพิ่มได้ที่แท็บ <b>ข้อมูล</b></div>') + '</section>' +
       '<aside class="side-panel">' + (term ? termSide(ent, conflicts) : sidePanel(ent, blocks, conflicts)) + '</aside>' +
       '</div>';
@@ -1508,20 +1511,24 @@
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const pers = TT.periods(state.settings);
       hint = 'เลือก <b>' + esc(sj ? sj.code : a.title) + '</b> สัปดาห์ที่ ' + x.week + ' วัน' + esc(state.settings.days[x.day]) + ' คาบ ' + x.start + '–' + (x.start + x.len - 1) +
-        ' (' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + ', ' + x.len + ' ชม.) — คลิกช่องสีเขียวเพื่อย้าย (สัปดาห์ไหนก็ได้) หรือใช้ "เลื่อนเวลา"';
+        ' (' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + ', ' + x.len + ' ชม.) — คลิกช่องสีเขียวเพื่อย้าย (สัปดาห์ไหนก็ได้) หรือลากไปวาง';
     } else if (ui.termPick) {
       const a = idx.assignments.get(ui.termPick);
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const st = a && TT.termStatus(state, a, idx.subjects);
       hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> ครั้งละ ' + Math.min(st.hpd, st.remaining) + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกช่องสีเขียวในตารางสัปดาห์ไหนก็ได้ ต่อไปเรื่อย ๆ จนครบ' : '';
-    } else hint = 'เลือกวิชาทางขวา แล้วคลิกคาบในตารางของสัปดาห์ที่ต้องการ (หรือลากวาง) · ช่องสีเทาคือตารางรายสัปดาห์ · คลิกช่องสีที่วางแล้วเพื่อปรับหรือย้าย';
+    } else hint = 'เลือกวิชาทางขวา แล้วคลิกคาบในตารางของสัปดาห์ที่ต้องการ (หรือลากวาง) · สีเทา = ตารางรายสัปดาห์ · คลิกช่องสีที่วางแล้วเพื่อใช้เครื่องมือหรือย้าย';
+    let split = '<option value="">แบ่งเวลา…</option>';
+    if (x) for (let h = 1; h < x.len; h++) split += '<option value="' + h + '">หัว ' + h + ' + ท้าย ' + (x.len - h) + '</option>';
     return '<div class="tools" role="toolbar" aria-label="เครื่องมือตารางทั้งเทอม">' +
-      '<div class="tool-group"><span class="tg-label">เลื่อนเวลา</span>' +
-      '<button class="btn small" data-tsh="-1"' + dis(x && x.start > 1) + ' aria-label="เลื่อนให้เร็วขึ้น 1 คาบ">← เร็วขึ้น</button>' +
-      '<button class="btn small" data-tsh="1"' + dis(x) + ' aria-label="เลื่อนให้ช้าลง 1 คาบ">ช้าลง →</button></div>' +
-      '<div class="tool-group"><span class="tg-label">ชั่วโมงวันนี้</span>' +
-      '<button class="btn small" data-ts="1"' + dis(x) + ' aria-label="เพิ่ม 1 ชั่วโมง">+1</button>' +
-      '<button class="btn small" data-ts="-1"' + dis(x && x.len > 1) + ' aria-label="ลด 1 ชั่วโมง">−1</button></div>' +
+      '<div class="tool-group"><span class="tg-label">' + ICON.scissors + '</span>' +
+      '<select id="ts-split" aria-label="แบ่งเวลา"' + dis(x && x.len > 1) + '>' + split + '</select></div>' +
+      '<div class="tool-group"><span class="tg-label">หัว</span>' +
+      '<button class="btn small" data-trs="1,0"' + dis(x && x.start > 1) + ' aria-label="เพิ่มชั่วโมงที่หัว">+1</button>' +
+      '<button class="btn small" data-trs="-1,0"' + dis(x && x.len > 1) + ' aria-label="ลดชั่วโมงที่หัว">−1</button>' +
+      '<span class="tg-label">ท้าย</span>' +
+      '<button class="btn small" data-trs="0,1"' + dis(x) + ' aria-label="เพิ่มชั่วโมงที่ท้าย">+1</button>' +
+      '<button class="btn small" data-trs="0,-1"' + dis(x && x.len > 1) + ' aria-label="ลดชั่วโมงที่ท้าย">−1</button></div>' +
       '<div class="tool-group"><button class="btn small danger" id="ts-remove"' + dis(x) + '>เอาออก</button></div>' +
       '<span class="spacer"></span>' +
       '<div class="tool-group"><button class="btn small" id="term-clear">ล้างตารางทั้งเทอมนี้</button></div>' +
@@ -1757,20 +1764,21 @@
       state.sessions = state.sessions.filter((x) => !ids.has(x.assignmentId));
       commit();
     };
-    $$('[data-ts]', el).forEach((b) => (b.onclick = () => {
-      const r = TT.resizeSession(state, ui.termSel, Number(b.dataset.ts));
+    $$('[data-trs]', el).forEach((b) => (b.onclick = () => {
+      const [dh, dt] = b.dataset.trs.split(',').map(Number);
+      const r = TT.resizeSession(state, ui.termSel, dh, dt);
       if (!r.ok) { toast(r.reason, true); return; }
       commit();
       const bad = TT.findConflicts(state).byPlacement.get('S:' + ui.termSel);
       if (bad) toast('ปรับแล้ว แต่ชนกัน: ' + [...bad][0], true);
     }));
-    $$('[data-tsh]', el).forEach((b) => (b.onclick = () => {
-      const r = TT.shiftSession(state, ui.termSel, Number(b.dataset.tsh));
-      if (!r.ok) { toast(r.reason, true); return; }
+    const tsp = $('#ts-split', el);
+    if (tsp) tsp.onchange = () => {
+      if (!tsp.value) return;
+      TT.splitSession(state, ui.termSel, Number(tsp.value));
       commit();
-      const bad = TT.findConflicts(state).byPlacement.get('S:' + ui.termSel);
-      if (bad) toast('เลื่อนแล้ว แต่ชนกัน: ' + [...bad][0], true);
-    }));
+      toast('แบ่งแล้ว คลิก/ลากส่วนท้ายไปวางวันหรือสัปดาห์อื่นได้');
+    };
     const rm = $('#ts-remove', el);
     if (rm) rm.onclick = () => { state.sessions = state.sessions.filter((x) => x.id !== ui.termSel); ui.termSel = null; commit(); };
     if (ui.termPick) highlightTerm(ui.termPick);

@@ -431,8 +431,13 @@ table.term-grid .free.none { color: var(--warn); }
   .cal-switch { max-width: none; }
 }
 
+/* แถบเครื่องมือ + แถบสัปดาห์ ค้างไว้ด้านบนขณะเลื่อนหน้าจอ */
+.sticky-tools { position: sticky; top: 64px; z-index: 6; display: flex; flex-direction: column; gap: 6px; padding: 8px 0 6px; margin: -8px 0 0; background: var(--bg); }
+.sticky-tools .tools { box-shadow: 0 4px 14px rgba(29, 28, 26, .06); }
+.sticky-tools .tool-hint { background: var(--bg); }
+
 /* ---------- ตารางทั้งเทอม: 18 ตาราง ---------- */
-.week-strip { display: flex; align-items: stretch; gap: 3px; position: sticky; top: 72px; z-index: 5; background: var(--panel); padding: 6px; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 12px rgba(29,28,26,.06); overflow-x: auto; }
+.week-strip { display: flex; align-items: stretch; gap: 3px; background: var(--panel); padding: 6px; border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
 .week-strip .ws-label { display: flex; align-items: center; font-size: 12px; color: var(--muted); padding: 0 6px 0 4px; }
 .week-strip button { flex: 1 0 38px; }
 .week-strip button { display: flex; flex-direction: column; align-items: center; padding: 4px 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; line-height: 1.2; }
@@ -442,7 +447,7 @@ table.term-grid .free.none { color: var(--warn); }
 .week-strip button.has small { color: var(--accent); }
 .week-strip button:hover { border-color: var(--accent); }
 .term-legend { margin-bottom: 12px; }
-.term-week { margin-bottom: 18px; scroll-margin-top: 150px; }
+.term-week { margin-bottom: 18px; scroll-margin-top: 230px; }
 .term-week:last-child { margin-bottom: 0; }
 .tw-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 2px 8px; border-top: 2px solid var(--line); }
 .term-week:first-of-type .tw-head { border-top: 0; }
@@ -498,7 +503,7 @@ table.data tr.dup-row-t { background: #FFF6F4; }
   .side-list { position: static; max-height: 320px; }
 }
 @media (max-width: 700px) {
-  .week-strip { top: 0; }
+  .sticky-tools { top: 0; }
   main { padding: 16px; }
   .app-header { position: static; gap: 10px 16px; padding: 10px 16px; }
   #steps { order: 3; flex-basis: 100%; overflow-x: auto; }

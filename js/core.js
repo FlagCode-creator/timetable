@@ -818,15 +818,37 @@
     return { ok: true };
   }
 
-  /** เพิ่ม/ลดชั่วโมงของ session ที่ท้าย */
-  function resizeSession(state, sessionId, delta) {
+  /**
+   * เพิ่ม/ลดชั่วโมงของ session ที่หัว (dHead) หรือท้าย (dTail)
+   * เพิ่มได้ไม่เกินชั่วโมงทั้งเทอมที่เหลือ
+   */
+  function resizeSession(state, sessionId, dHead, dTail) {
+    if (dTail === undefined) { dTail = dHead; dHead = 0; }
     const x = state.sessions.find((y) => y.id === sessionId);
     if (!x) return { ok: false, reason: 'ไม่พบ' };
-    const len = x.len + delta;
+    const len = x.len + dHead + dTail;
+    const start = x.start - dHead;
     if (len < 1) return { ok: false, reason: 'ต้องมีอย่างน้อย 1 ชั่วโมง' };
-    if (!canSpan(periods(state.settings), x.start, len, true)) return { ok: false, reason: 'เลยคาบสุดท้ายของวัน ลองเลื่อนเวลาให้เร็วขึ้นก่อน' };
+    const pers = periods(state.settings);
+    if (start < 1) return { ok: false, reason: 'เป็นคาบแรกของวันแล้ว' };
+    if (!canSpan(pers, start, len, true)) return { ok: false, reason: 'เลยคาบสุดท้ายของวัน (' + pers[pers.length - 1].end + ')' };
+    const a = state.assignments.find((y) => y.id === x.assignmentId);
+    if (dHead + dTail > 0 && a && termStatus(state, a).remaining < dHead + dTail) {
+      return { ok: false, reason: 'ครบชั่วโมงทั้งเทอมแล้ว ลดชั่วโมงวันอื่นก่อน แล้วค่อยเพิ่มวันนี้' };
+    }
+    x.start = start;
     x.len = len;
     return { ok: true };
+  }
+
+  /** แบ่ง session เป็นหัว (headLen ชม.) + ท้าย (ส่วนที่เหลือ) ส่วนท้ายวางต่อจากหัวทันที ย้ายแยกได้ */
+  function splitSession(state, sessionId, headLen) {
+    const x = state.sessions.find((y) => y.id === sessionId);
+    if (!x || !(headLen >= 1 && headLen < x.len)) return null;
+    const tail = { id: uid('s'), assignmentId: x.assignmentId, week: x.week, day: x.day, start: x.start + headLen, len: x.len - headLen };
+    x.len = headLen;
+    state.sessions.push(tail);
+    return tail;
   }
 
   /* ------------------------------ ตรวจสอบข้อมูล ------------------------------ */
@@ -1171,6 +1193,7 @@
     addSession,
     fillTerm,
     resizeSession,
+    splitSession,
     buildSessionOccupancy,
     blockedCells,
     applyRecurring,
