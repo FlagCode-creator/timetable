@@ -87,7 +87,68 @@ test('จัดอัตโนมัติ: วางครบ ไม่ชน �
   assert.strictEqual(TT.allBlocks(s).filter((b) => !b.placement).length, 0);
   const bc = s.assignments.find((a) => a.blockCourse);
   const pl = s.placements.find((p) => p.assignmentId === bc.id);
-  assert.notStrictEqual(pl.day, 4, 'ครูช่างยนต์ไม่ว่างวันศุกร์คาบ 1-3 → Block Course 7 คาบลงวันศุกร์ไม่ได้');
+  assert.notStrictEqual(pl.day, 0, 'ครูช่างยนต์ไม่ว่างวันจันทร์คาบ 1-3 → Block Course 7 คาบลงวันจันทร์ไม่ได้');
+  assert.ok(s.placements.every((p) => p.day !== 4), 'วันศุกร์ห้ามจัด');
+});
+
+test('วันห้ามจัดและช่วงห้ามจัด', () => {
+  const s = mini();
+  s.settings.closedDays = ['ศุกร์'];
+  s.settings.blocked = [{ id: 'b1', label: 'ประชุมครู', day: 'จันทร์', from: 8, to: 9 }];
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '2' });
+  const b = TT.blockedCells(s.settings);
+  assert.strictEqual(b.size, 13 + 2);
+  assert.strictEqual(TT.checkPlacement(s, s.assignments[0], 0, 4, 1).ok, false);
+  assert.match(TT.checkPlacement(s, s.assignments[0], 0, 0, 9).reasons.join(), /ประชุมครู/);
+  assert.strictEqual(TT.checkPlacement(s, s.assignments[0], 0, 0, 1).ok, true);
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 4, start: 1 });
+  assert.ok(TT.findConflicts(s).list.some((c) => /ศุกร์/.test(c.message)));
+});
+
+test('Home Room: ครูที่ปรึกษา 1 คนได้ 1 กลุ่มก่อน ที่เหลือเว้นว่าง และล็อกไว้วันพุธคาบ 1', () => {
+  const s = mini();
+  s.groups.push({ id: 'g3', code: '3', name: 'กลุ่ม 3', unavailable: [], advisor: 'ไม่มีในรายชื่อ' });
+  s.groups[0].advisor = 'ครู ก';
+  s.groups[1].advisor = 'ครู  ก';
+  const res = TT.applyRecurring(s, 'rec_homeroom');
+  assert.deepStrictEqual([res.created, res.withTeacher, res.duplicate, res.notFound, res.noAdvisor], [3, 1, 1, 1, 0]);
+  const hr = s.assignments.filter((a) => a.recurringId === 'rec_homeroom');
+  assert.strictEqual(hr.find((a) => a.groupIds[0] === 'g1').teacherId, 't1');
+  assert.strictEqual(hr.find((a) => a.groupIds[0] === 'g2').teacherId, '');
+  assert.ok(s.placements.every((p) => p.day === 2 && p.start === 1 && p.locked));
+  // กรอกครูเองแล้วสร้างซ้ำ: ไม่ทับครูที่ใส่ไว้ และไม่สร้างซ้ำ
+  hr.find((a) => a.groupIds[0] === 'g2').teacherId = 't2';
+  const again = TT.applyRecurring(s, 'rec_homeroom');
+  assert.strictEqual(again.created, 0);
+  assert.strictEqual(again.withTeacher, 2);
+  assert.strictEqual(s.assignments.filter((a) => a.recurringId).length, 3);
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  s.settings.closedDays = ['พุธ'];
+  assert.ok(TT.applyRecurring(s, 'rec_homeroom').error);
+  assert.strictEqual(TT.removeRecurring(s, 'rec_homeroom'), 3);
+  assert.strictEqual(s.placements.length, 0);
+});
+
+test('แบ่งก้อนเป็นหัว/ท้าย รวมกลับ และเพิ่มเวลาให้ Block Course', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '4', blockCourse: false });
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 4, locked: true });
+  assert.strictEqual(TT.splitBlock(s, 'a1', 0, 3), true);
+  assert.strictEqual(s.assignments[0].blocks, '3+1');
+  const tail = TT.findPlacement(s, 'a1', 1);
+  assert.deepStrictEqual([tail.day, tail.start, tail.locked], [0, 7, true]);
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  assert.strictEqual(TT.mergeWithNext(s, 'a1', 0), true);
+  assert.strictEqual(s.assignments[0].blocks, '4');
+  assert.strictEqual(s.placements.length, 1);
+  // ก้อนปกติขยายข้ามพักกลางวันไม่ได้ / Block Course ได้
+  assert.strictEqual(TT.resizeBlock(s, 'a1', 0, 1, 0).ok, false);
+  s.assignments[0].blockCourse = true;
+  assert.strictEqual(TT.resizeBlock(s, 'a1', 0, 3, 0).ok, true);
+  assert.deepStrictEqual([s.assignments[0].blocks, TT.findPlacement(s, 'a1', 0).start], ['7', 1]);
+  assert.strictEqual(TT.resizeBlock(s, 'a1', 0, 0, 1).ok, true);
+  assert.strictEqual(TT.assignmentHours(s.assignments[0], new Map(s.subjects.map((x) => [x.id, x]))), 8);
+  assert.strictEqual(TT.resizeBlock(s, 'a1', 0, 0, -8).ok, false);
 });
 
 test('จัดอัตโนมัติ: เมื่อเวลาไม่พอ วางเท่าที่ได้และรายงานที่เหลือ', () => {

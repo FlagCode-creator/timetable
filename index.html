@@ -4,17 +4,30 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>จัดตารางสอน</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E📅%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 28 28%22%3E%3Crect x=%221%22 y=%221%22 width=%2226%22 height=%2226%22 rx=%227%22 fill=%22%232F4BB7%22/%3E%3Cpath d=%22M8 11h12M8 15.5h12M8 20h7M12 7v14%22 stroke=%22white%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <header class="app-header no-print">
-    <div class="brand">📅 โปรแกรมจัดตารางสอน</div>
-    <nav id="tabs"></nav>
-    <button class="btn small" id="hdr-export" title="ดาวน์โหลดไฟล์ข้อมูลทั้งหมดเก็บไว้">บันทึกไฟล์สำรอง</button>
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2F4BB7"/><path d="M8 11h12M8 15.5h12M8 20h7M12 7v14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="brand-name">จัดตารางสอน</span>
+      <span class="term" id="hdr-term"></span>
+    </div>
+    <nav id="steps" aria-label="ขั้นตอน"></nav>
+    <div class="hdr-actions">
+      <button class="btn" id="hdr-rules">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        เงื่อนไข
+      </button>
+      <button class="btn" id="hdr-export" title="ดาวน์โหลดไฟล์ข้อมูลทั้งหมดเก็บไว้">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        <span class="lbl">บันทึกไฟล์สำรอง</span>
+      </button>
+    </div>
   </header>
 
   <main id="main"></main>

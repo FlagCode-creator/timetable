@@ -20,7 +20,7 @@
   }
 
   /** เนื้อหาในช่องตารางตามมุมมอง */
-  function cellItems(state, filter, view) {
+  function cellItems(state, filter, view, forEditor) {
     const idx = TT.indexState(state);
     const items = [];
     for (const pl of state.placements) {
@@ -34,6 +34,7 @@
       const lines = [esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <small>(Block Course)</small>' : '')];
       if (view !== 'room' && room) lines.push(esc(room.name));
       if (view !== 'teacher' && teacher) lines.push(esc(teacher.name));
+      else if (view !== 'teacher' && forEditor) lines.push('<span class="no-teacher">ยังไม่มีครู</span>');
       if (view !== 'group' && groups.length) lines.push(esc(groups.join(', ')));
       items.push({
         key: TT.placementKey(a.id, pl.blockIndex),
@@ -42,6 +43,7 @@
         len,
         assignment: a,
         placement: pl,
+        recurring: !!a.recurringId,
         title: s ? s.code + ' ' + s.name : a.title,
         html: lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : 'c-line') + '">' + l + '</div>').join(''),
       });

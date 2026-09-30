@@ -26,7 +26,8 @@
    * opts:
    *  state, items: [{ key, day, start, len, html, cls, title }]
    *  editable: ใส่ data-d / data-p ให้ช่องว่างเพื่อคลิก/ลากวาง
-   *  unavailable: Set ของ "day|period" ที่ไม่ว่าง
+   *  unavailable: Set ของ "day|period" ที่ไม่ว่าง (เฉพาะคน/กลุ่มที่ดูอยู่)
+   *  blocked: Map ของ "day|period" → เหตุผล (ห้ามจัดสำหรับทุกคน) แสดงเป็นแถบลาย
    */
   function buildGrid(opts) {
     const s = opts.state.settings;
@@ -34,6 +35,7 @@
     const pers = TT.periods(s);
     const perByCol = new Map(pers.map((p) => [p.colIndex, p]));
     const unav = opts.unavailable || new Set();
+    const blocked = opts.blocked || new Map();
 
     // จัดชิ้นเป็นแถวย่อย (lane) ต่อวัน กรณีมีคาบซ้อนกันจะได้เห็นทั้งหมด
     const lanesByDay = s.days.map(() => []);
@@ -58,7 +60,7 @@
     let html = '<table class="tt-grid' + (opts.editable ? ' editable' : '') + '"><thead><tr><th class="corner">เวลา</th>';
     for (const c of cols) html += '<th class="time' + (c.type === 'break' ? ' brk' : '') + '">' + esc(c.start) + ' - ' + esc(c.end) + '</th>';
     // แถว "วัน/คาบ" ต้องอยู่ใน tbody เดียวกับแถววัน เพื่อให้ช่วงพัก rowspan ลงไปครบทุกวัน
-    html += '</tr></thead><tbody><tr><th class="corner">วัน/คาบ</th>';
+    html += '</tr></thead><tbody><tr class="pno-row"><th class="corner">วัน/คาบ</th>';
     cols.forEach((c, ci) => {
       if (c.type === 'break') html += '<td class="break" rowspan="' + (totalRows + 1) + '"><span>' + esc(c.label) + '</span></td>';
       else html += '<th class="pno">' + perByCol.get(ci).no + '</th>';
@@ -74,7 +76,8 @@
         let skipUntil = 0;
         cols.forEach((c, ci) => {
           if (c.type === 'break') return;
-          const p = perByCol.get(ci).no;
+          const per = perByCol.get(ci);
+          const p = per.no;
           if (p <= skipUntil) return;
           const pc = startAt.get(p);
           if (pc) {
@@ -84,12 +87,22 @@
               ? ' data-key="' + esc(it.key) + '" data-d="' + d + '" data-p="' + it.start + '" draggable="true"'
               : '';
             html += '<td class="blk ' + esc(it.cls || '') + '" colspan="' + pc.len + '"' + attrs +
-              (it.title ? ' title="' + esc(it.title) + '"' : '') + '>' + it.html + '</td>';
-          } else {
-            const ck = TT.cellKey(d, p);
-            const attrs = opts.editable ? ' data-d="' + d + '" data-p="' + p + '"' : '';
-            html += '<td class="empty' + (unav.has(ck) ? ' unav' : '') + '"' + attrs + '></td>';
+              (it.title ? ' title="' + esc(it.title) + '"' : '') + '><div class="bi">' + it.html + '</div></td>';
+            return;
           }
+          const ck = TT.cellKey(d, p);
+          const why = blocked.get(ck);
+          if (why) {
+            // รวมช่องห้ามจัดที่ติดกัน (ไม่คร่อมพัก) เป็นแถบเดียว
+            let n = 1;
+            while (p + n <= pers.length && pers[p + n - 1].seg === per.seg && !startAt.has(p + n) &&
+              blocked.get(TT.cellKey(d, p + n)) === why) n++;
+            skipUntil = p + n - 1;
+            html += '<td class="blocked" colspan="' + n + '" title="' + esc(why) + '"><div class="bi">' + (l === 0 && n >= 3 ? esc(why) : '') + '</div></td>';
+            return;
+          }
+          const attrs = opts.editable ? ' data-d="' + d + '" data-p="' + p + '"' : '';
+          html += '<td class="empty' + (unav.has(ck) ? ' unav' : '') + '"' + attrs + '><div class="bi"></div></td>';
         });
         html += '</tr>';
       });

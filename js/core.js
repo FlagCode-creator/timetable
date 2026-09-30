@@ -21,6 +21,10 @@
     return cols;
   }
 
+  function defaultRecurring() {
+    return { id: 'rec_homeroom', title: 'Home Room', day: 'พุธ', start: 1, len: 1 };
+  }
+
   function emptyState() {
     return {
       version: 1,
@@ -32,6 +36,9 @@
         days: ALL_DAYS.slice(0, 5),
         columns: defaultColumns(),
         signers: { curriculumHead: '', viceDirector: '', director: '' },
+        closedDays: [],
+        blocked: [],
+        recurring: [defaultRecurring()],
       },
       departments: [],
       teachers: [],
@@ -52,6 +59,9 @@
     out.settings.signers = Object.assign({}, base.settings.signers, (s.settings || {}).signers || {});
     if (!Array.isArray(out.settings.columns) || !out.settings.columns.length) out.settings.columns = defaultColumns();
     if (!Array.isArray(out.settings.days) || !out.settings.days.length) out.settings.days = base.settings.days;
+    for (const k of ['closedDays', 'blocked', 'recurring']) {
+      if (!Array.isArray(out.settings[k])) out.settings[k] = base.settings[k];
+    }
     for (const k of ['departments', 'teachers', 'subjects', 'groups', 'rooms', 'assignments', 'placements']) {
       if (!Array.isArray(out[k])) out[k] = [];
     }
@@ -76,6 +86,28 @@
       }
     });
     return list;
+  }
+
+  /**
+   * ช่องที่ห้ามจัดสำหรับทุกคน: วันที่ตั้งเป็น "ห้ามจัด" และช่วงเวลาห้ามจัดเพิ่มเติม
+   * คืนค่า Map("day|period" → เหตุผล)
+   */
+  function blockedCells(settings) {
+    const out = new Map();
+    const P = periods(settings).length;
+    settings.days.forEach((name, d) => {
+      if ((settings.closedDays || []).includes(name)) {
+        for (let p = 1; p <= P; p++) out.set(cellKey(d, p), 'วัน' + name + 'ห้ามจัดตาราง');
+      }
+    });
+    for (const b of settings.blocked || []) {
+      const d = settings.days.indexOf(b.day);
+      if (d < 0) continue;
+      const from = Math.max(1, Number(b.from) || 1);
+      const to = Math.min(P, Number(b.to) || from);
+      for (let p = from; p <= to; p++) if (!out.has(cellKey(d, p))) out.set(cellKey(d, p), 'ช่วงห้ามจัด' + (b.label ? ': ' + b.label : ''));
+    }
+    return out;
   }
 
   /** วางก้อนยาว len คาบ เริ่มคาบ start ได้ไหม (Block Course ข้ามช่วงพักได้) */
@@ -237,6 +269,11 @@
       return { ok: false, span: false, reasons: ['วางไม่ได้: เกินคาบสุดท้าย หรือคร่อมช่วงพัก (ถ้าต้องการเรียนข้ามพัก ให้ติ๊ก Block Course)'] };
     }
     const reasons = new Set();
+    const blocked = (cache && cache.blocked) || blockedCells(state.settings);
+    for (let p = start; p < start + len; p++) {
+      const why = blocked.get(cellKey(day, p));
+      if (why) reasons.add(why);
+    }
     for (const rk of resourceKeys(a, idx)) {
       const m = occ.get(rk);
       const un = unavailableOf(rk, idx);
@@ -273,6 +310,20 @@
         const [day, p] = ck.split('|').map(Number);
         if (keys.length > 1) add(keys, resourceName(rk, idx) + ' ชนกัน', day, p, rk);
         if (un && un.has(ck)) add(keys, resourceName(rk, idx) + ' ไม่ว่างในคาบนี้', day, p, rk);
+      }
+    }
+    const blocked = blockedCells(state.settings);
+    if (blocked.size) {
+      for (const pl of state.placements) {
+        const a = idx.assignments.get(pl.assignmentId);
+        if (!a) continue;
+        const len = assignmentBlocks(a, idx.subjects)[pl.blockIndex] || 0;
+        const key = placementKey(a.id, pl.blockIndex);
+        const rk = resourceKeys(a, idx)[0] || '';
+        for (let p = pl.start; p < pl.start + len; p++) {
+          const why = blocked.get(cellKey(pl.day, p));
+          if (why) add([key], why, pl.day, p, rk);
+        }
       }
     }
     const items = [...list.values()].map((x) => ({ ...x, keys: [...x.keys], periods: x.periods.sort((a, b) => a - b) }));
@@ -369,6 +420,11 @@
         if (d < D && p >= 1 && p <= P) grid(ent[0])[d * P + p - 1]++;
       }
     }
+    const blockedArr = new Uint8Array(D * P);
+    for (const ck of blockedCells(state.settings).keys()) {
+      const [d, p] = ck.split('|').map(Number);
+      blockedArr[d * P + p - 1] = 1;
+    }
     const aDays = new Map();
     const groupDay = new Map();
     const bump = (a, keys, d, s, len, delta) => {
@@ -396,6 +452,7 @@
 
     const fits = (u, d, s) => {
       if (!canSpan(pers, s, u.len, !!u.a.blockCourse)) return false;
+      for (let p = s; p < s + u.len; p++) if (blockedArr[d * P + p - 1]) return false;
       for (const rk of u.keys) {
         const g = grid(rk);
         for (let p = s; p < s + u.len; p++) if (g[d * P + p - 1] > 0) return false;
@@ -498,6 +555,151 @@
     };
   }
 
+  /* ------------------------------ กิจกรรมประจำ ------------------------------ */
+
+  const normName = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+
+  /**
+   * สร้าง/อัปเดตกิจกรรมประจำ (เช่น Home Room) ให้ทุกกลุ่มเรียน แล้วล็อกไว้ที่วัน/คาบที่กำหนด
+   * ผู้สอน = ครูที่ปรึกษาของกลุ่ม โดยครู 1 คนได้ 1 กลุ่มก่อน
+   * กลุ่มที่ไม่มีชื่อครูที่ปรึกษา / ไม่พบชื่อในรายชื่อครู / ครูได้กลุ่มอื่นไปแล้ว จะเว้นว่างไว้ให้เลือกเอง
+   * ภาระงานที่มีอยู่แล้ว (รวมถึงกิจกรรมชื่อเดียวกันที่สร้างเอง) จะถูกใช้ต่อ และไม่เปลี่ยนครูที่ใส่ไว้แล้ว
+   */
+  function applyRecurring(state, recId) {
+    const rec = state.settings.recurring.find((r) => r.id === recId);
+    if (!rec) return { error: 'ไม่พบกิจกรรม' };
+    const day = state.settings.days.indexOf(rec.day);
+    if (day < 0) return { error: 'วัน' + rec.day + 'ไม่ได้เปิดสอน' };
+    if ((state.settings.closedDays || []).includes(rec.day)) return { error: 'วัน' + rec.day + 'ตั้งเป็นห้ามจัด' };
+    const len = Math.max(1, Number(rec.len) || 1);
+    const start = Number(rec.start) || 1;
+    if (!canSpan(periods(state.settings), start, len, true)) return { error: 'คาบที่เลือกเกินคาบสุดท้าย' };
+
+    const title = normName(rec.title).toLowerCase();
+    const byGroup = new Map();
+    for (const a of state.assignments) {
+      const mine = a.recurringId === rec.id ||
+        (!a.recurringId && !a.subjectId && normName(a.title).toLowerCase() === title && (a.groupIds || []).length === 1);
+      if (!mine) continue;
+      const g = (a.groupIds || [])[0];
+      if (g && !byGroup.has(g)) {
+        a.recurringId = rec.id;
+        byGroup.set(g, a);
+      }
+    }
+    const keep = new Set(byGroup.values());
+    const removedIds = new Set(state.assignments.filter((a) => a.recurringId === rec.id && !keep.has(a)).map((a) => a.id));
+    state.assignments = state.assignments.filter((a) => !removedIds.has(a.id));
+
+    const teachers = new Map(state.teachers.map((t) => [normName(t.name), t]));
+    const used = new Set([...keep].map((a) => a.teacherId).filter(Boolean));
+    const res = { groups: state.groups.length, created: 0, withTeacher: 0, noAdvisor: 0, notFound: 0, duplicate: 0, error: '' };
+    for (const g of state.groups) {
+      let a = byGroup.get(g.id);
+      if (!a) {
+        a = { id: uid('a'), teacherId: '', subjectId: null, title: rec.title, groupIds: [g.id], roomId: null, blocks: '', blockCourse: false, recurringId: rec.id };
+        state.assignments.push(a);
+        res.created++;
+      }
+      a.title = rec.title;
+      a.subjectId = null;
+      a.blocks = String(len);
+      a.blockCourse = false;
+      if (!a.teacherId) {
+        const name = normName(g.advisor);
+        const t = name ? teachers.get(name) : null;
+        if (!name) res.noAdvisor++;
+        else if (!t) res.notFound++;
+        else if (used.has(t.id)) res.duplicate++;
+        else {
+          a.teacherId = t.id;
+          used.add(t.id);
+        }
+      }
+      if (a.teacherId) res.withTeacher++;
+      state.placements = state.placements.filter((p) => p.assignmentId !== a.id);
+      state.placements.push({ assignmentId: a.id, blockIndex: 0, day, start, locked: true });
+    }
+    state.placements = state.placements.filter((p) => !removedIds.has(p.assignmentId));
+    return res;
+  }
+
+  /** ลบกิจกรรมประจำพร้อมภาระงานที่สร้างจากกิจกรรมนั้น */
+  function removeRecurring(state, recId) {
+    const ids = new Set(state.assignments.filter((a) => a.recurringId === recId).map((a) => a.id));
+    state.assignments = state.assignments.filter((a) => !ids.has(a.id));
+    state.placements = state.placements.filter((p) => !ids.has(p.assignmentId));
+    state.settings.recurring = state.settings.recurring.filter((r) => r.id !== recId);
+    return ids.size;
+  }
+
+  /* --------------------------- แบ่ง / รวม / ปรับความยาวก้อนคาบ --------------------------- */
+
+  function findPlacement(state, assignmentId, blockIndex) {
+    return state.placements.find((p) => p.assignmentId === assignmentId && p.blockIndex === blockIndex) || null;
+  }
+
+  function blocksOf(state, a) {
+    const subjects = new Map(state.subjects.map((x) => [x.id, x]));
+    return assignmentBlocks(a, subjects).slice();
+  }
+
+  /** แบ่งก้อนคาบเป็นหัว (headLen คาบ) และท้าย (ส่วนที่เหลือ) ถ้าวางอยู่แล้ว ส่วนท้ายจะวางต่อจากหัวทันที */
+  function splitBlock(state, assignmentId, blockIndex, headLen) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a) return false;
+    const blocks = blocksOf(state, a);
+    const L = blocks[blockIndex];
+    if (!(headLen >= 1 && headLen < L)) return false;
+    blocks.splice(blockIndex, 1, headLen, L - headLen);
+    a.blocks = blocks.join('+');
+    for (const p of state.placements) if (p.assignmentId === assignmentId && p.blockIndex > blockIndex) p.blockIndex++;
+    const head = findPlacement(state, assignmentId, blockIndex);
+    if (head) state.placements.push({ assignmentId, blockIndex: blockIndex + 1, day: head.day, start: head.start + headLen, locked: !!head.locked });
+    return true;
+  }
+
+  /** รวมก้อนคาบกับก้อนถัดไป (ตำแหน่งตามก้อนแรก ถ้าก้อนแรกยังไม่ได้วาง ก้อนที่รวมแล้วจะรอจัดใหม่) */
+  function mergeWithNext(state, assignmentId, blockIndex) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a) return false;
+    const blocks = blocksOf(state, a);
+    if (blockIndex + 1 >= blocks.length) return false;
+    blocks.splice(blockIndex, 2, blocks[blockIndex] + blocks[blockIndex + 1]);
+    a.blocks = blocks.join('+');
+    state.placements = state.placements.filter((p) => !(p.assignmentId === assignmentId && p.blockIndex === blockIndex + 1));
+    for (const p of state.placements) if (p.assignmentId === assignmentId && p.blockIndex > blockIndex + 1) p.blockIndex--;
+    const head = findPlacement(state, assignmentId, blockIndex);
+    if (head && !canSpan(periods(state.settings), head.start, blocks[blockIndex], !!a.blockCourse)) {
+      state.placements = state.placements.filter((p) => p !== head);
+    }
+    return true;
+  }
+
+  /**
+   * เพิ่ม/ลดคาบที่หัว (dHead) หรือท้าย (dTail) ของก้อน เช่น เพิ่มเวลาให้ Block Course
+   * คืนค่า { ok, reason }
+   */
+  function resizeBlock(state, assignmentId, blockIndex, dHead, dTail) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a) return { ok: false, reason: 'ไม่พบภาระงาน' };
+    const blocks = blocksOf(state, a);
+    const pl = findPlacement(state, assignmentId, blockIndex);
+    if (!pl) { dTail += dHead; dHead = 0; }
+    const L2 = blocks[blockIndex] + dHead + dTail;
+    if (L2 < 1) return { ok: false, reason: 'ก้อนคาบต้องมีอย่างน้อย 1 คาบ' };
+    if (pl) {
+      const s2 = pl.start - dHead;
+      if (!canSpan(periods(state.settings), s2, L2, !!a.blockCourse)) {
+        return { ok: false, reason: a.blockCourse ? 'เกินคาบแรก/คาบสุดท้ายของวัน' : 'คร่อมช่วงพักหรือเกินขอบตาราง (ถ้าต้องการเรียนข้ามพัก ให้ติ๊ก Block Course)' };
+      }
+      pl.start = s2;
+    }
+    blocks[blockIndex] = L2;
+    a.blocks = blocks.join('+');
+    return { ok: true };
+  }
+
   /* ------------------------------ วางข้อมูลจาก Excel ------------------------------ */
 
   /** แยกข้อความที่คัดลอกจาก Excel เป็นแถว/คอลัมน์ (คั่นด้วยแท็บ ถ้าไม่มีแท็บใช้จุลภาค) */
@@ -545,6 +747,14 @@
 
   const TT = {
     ALL_DAYS,
+    defaultRecurring,
+    blockedCells,
+    applyRecurring,
+    removeRecurring,
+    findPlacement,
+    splitBlock,
+    mergeWithNext,
+    resizeBlock,
     splitRows,
     parseGroupRows,
     uid,
