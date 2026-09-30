@@ -83,10 +83,10 @@
           if (pc) {
             const it = pc.item;
             skipUntil = p + pc.len - 1;
-            const attrs = opts.editable
+            const attrs = opts.editable && !it.static
               ? ' data-key="' + esc(it.key) + '" data-d="' + d + '" data-p="' + it.start + '" draggable="true"'
               : '';
-            html += '<td class="blk ' + esc(it.cls || '') + '" colspan="' + pc.len + '"' + attrs +
+            html += '<td class="blk ' + esc(it.cls || '') + (pc.len === 1 ? ' w1' : '') + '" colspan="' + pc.len + '"' + attrs +
               (it.title ? ' title="' + esc(it.title) + '"' : '') + '><div class="bi">' + it.html + '</div></td>';
             return;
           }

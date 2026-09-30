@@ -283,3 +283,32 @@ test('ข้อมูลตัวอย่างตารางทั้งเ�
   const dup = TT.checkData(s).filter((i) => i.type === 'dup-group');
   assert.strictEqual(dup.length, 1);
 });
+
+test('ห้องเรียนชนกัน: ค่าเริ่มต้นไม่ตรวจ เปิดตรวจได้ที่เงื่อนไข', () => {
+  const s = mini();
+  s.assignments.push(
+    { id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], roomId: 'r1', blocks: '2' },
+    { id: 'a2', teacherId: 't2', subjectId: 's1', groupIds: ['g2'], roomId: 'r1', blocks: '2' },
+  );
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 1 }, { assignmentId: 'a2', blockIndex: 0, day: 0, start: 1 });
+  assert.strictEqual(TT.findConflicts(s).list.length, 0, 'ห้องเดียวกันเวลาเดียวกันไม่นับชน');
+  assert.strictEqual(TT.checkPlacement(s, s.assignments[1], 0, 0, 1).ok, true);
+  s.settings.checkRooms = true;
+  assert.ok(TT.findConflicts(s).list.some((c) => /ห้อง/.test(c.message)));
+});
+
+test('ตารางทั้งเทอมแบบ 18 ตาราง: คลิกคาบในสัปดาห์ใดก็ได้ ระบบหาคาบเริ่มให้พอดี', () => {
+  const s = mini();
+  s.assignments.push(
+    { id: 'term', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '', plan: 'term', hoursPerDay: 4 },
+    { id: 'wk', teacherId: 't1', subjectId: 's1', groupIds: ['g2'], blocks: '2' },
+  );
+  s.placements.push({ assignmentId: 'wk', blockIndex: 0, day: 0, start: 4 });   // จันทร์ 12:00-14:00 ทุกสัปดาห์
+  const a = s.assignments[0];
+  assert.strictEqual(TT.snapSession(s, a, 5, 0, 13, 4), 10, 'คลิก 21:00 → 18:00–22:00');
+  assert.strictEqual(TT.snapSession(s, a, 5, 0, 7, 4), 7, 'คลิก 15:00 → 15:00–19:00 (หลบคาบประจำ 12–14)');
+  assert.strictEqual(TT.snapSession(s, a, 5, 0, 5, 4), 5, 'คลิก 13:00 ชนคาบประจำทุกตำแหน่ง → คืนตำแหน่งที่คลิก (ชน ให้ผู้ใช้ยืนยัน)');
+  const r = TT.addSession(s, 'term', 5, 0, { start: 7, len: 4 });
+  assert.deepStrictEqual([r.session.week, r.session.start, r.session.len], [5, 7, 4]);
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+});

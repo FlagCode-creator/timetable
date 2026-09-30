@@ -292,6 +292,11 @@
       (!s.blocked.length && !s.closedDays.length ? '<p class="hint">ยังไม่มีช่วงห้ามจัด</p>' : '') +
       '</div><p class="hint">เวลาไม่ว่างของครูหรือกลุ่มเรียนแต่ละคน ตั้งได้ที่หน้าจัดตาราง → โหมด "เวลาไม่ว่าง"</p>' +
       '</section>' +
+      // ห้องเรียน
+      '<section class="card"><div class="card-head"><div><h2>ห้องเรียน</h2><p>ตรวจชนเฉพาะครูและกลุ่มเรียนเสมอ ส่วนห้องเลือกได้</p></div></div>' +
+      '<label class="switch-row"><input type="checkbox" id="chk-rooms"' + (s.checkRooms ? ' checked' : '') + '>' +
+      '<span><b>ตรวจห้องเรียนชนกัน</b><small>ปิดไว้ = ใช้ห้องเดียวกันพร้อมกันได้ (ค่าเริ่มต้น) · เปิด = ห้องเดียวกันเวลาเดียวกันจะแจ้งว่าชน ยกเว้นห้องที่ตั้ง "ใช้พร้อมกันได้"</small></span></label>' +
+      '</section>' +
       '</div></div>';
 
     // วันเรียน
@@ -333,6 +338,7 @@
       const nb = $('[data-rnone]', box);
       if (nb) nb.onclick = () => { ui.assignTeacher = '__none'; go('assign'); };
     });
+    $('#chk-rooms', el).onchange = (e) => { s.checkRooms = e.target.checked; commit(); toast(s.checkRooms ? 'เปิดตรวจห้องเรียนชนกันแล้ว' : 'ปิดตรวจห้องเรียนชนกันแล้ว'); };
     // ช่วงห้ามจัด
     $('#blk-add', el).onclick = () => {
       s.blocked.push({ id: TT.uid('b'), label: '', day: openDays()[0] || s.days[0], from: 1, to: 1 });
@@ -1133,7 +1139,7 @@
       '<label class="search">' + ICON.search + '<input type="search" id="lfilter" aria-label="ค้นหา" placeholder="ค้นหา' + v.label + '" value="' + esc(ui.listFilter) + '"></label>' +
       '<div class="elist" id="elist"></div></aside>' +
       '<section class="sched-main">' + (ent
-        ? schedHeader(ent) + (term ? termToolbar() + '<div class="grid-card" id="termwrap">' + termGrid(ent, conflicts) + '</div>'
+        ? schedHeader(ent) + (term ? termToolbar() + termStrip(ent) + '<div class="grid-card" id="termwrap">' + termGrid(ent, conflicts) + '</div>'
           : weekToolbar(ent) + '<div class="grid-card" id="gridwrap">' + gridFor(ent, conflicts) + '</div>' + legend())
         : '<div class="card empty-state">ยังไม่มี' + v.label + ' เพิ่มได้ที่แท็บ <b>ข้อมูล</b></div>') + '</section>' +
       '<aside class="side-panel">' + (term ? termSide(ent, conflicts) : sidePanel(ent, blocks, conflicts)) + '</aside>' +
@@ -1197,7 +1203,7 @@
     } else if (ui.view === 'group') {
       meta = [ent.code, ent.level, ent.major, ent.advisor ? 'ครูที่ปรึกษา ' + ent.advisor : ''].filter(Boolean).map(esc).join(' · ');
     } else {
-      meta = ent.shared ? 'ใช้พร้อมกันได้หลายกลุ่ม (ไม่ตรวจชน)' : 'ห้อง/สถานที่';
+      meta = !state.settings.checkRooms ? 'ไม่ตรวจห้องชนกัน (เปิดได้ที่เงื่อนไข)' : ent.shared ? 'ใช้พร้อมกันได้หลายกลุ่ม (ไม่ตรวจชน)' : 'ตรวจห้องชนกัน';
     }
     return '<div class="sched-head"><div><h1>' + (ui.view === 'teacher'
       ? '<button class="title-link" id="to-work" title="ดู/เพิ่มรายวิชาที่สอน">' + esc(ent.name) + '<span class="arrow">รายวิชาที่สอน →</span></button>'
@@ -1502,13 +1508,13 @@
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const pers = TT.periods(state.settings);
       hint = 'เลือก <b>' + esc(sj ? sj.code : a.title) + '</b> สัปดาห์ที่ ' + x.week + ' วัน' + esc(state.settings.days[x.day]) + ' คาบ ' + x.start + '–' + (x.start + x.len - 1) +
-        ' (' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + ', ' + x.len + ' ชม.) — ใช้ "เลื่อนเวลา" เพื่อย้ายช่วงเวลา หรือลากไปวันอื่น';
+        ' (' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + ', ' + x.len + ' ชม.) — คลิกช่องสีเขียวเพื่อย้าย (สัปดาห์ไหนก็ได้) หรือใช้ "เลื่อนเวลา"';
     } else if (ui.termPick) {
       const a = idx.assignments.get(ui.termPick);
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const st = a && TT.termStatus(state, a, idx.subjects);
-      hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> วันละ ' + st.hpd + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกวันที่มีกรอบสีเขียวต่อไปเรื่อย ๆ จนครบ' : '';
-    } else hint = 'เลือกวิชาทางขวา แล้วคลิกวันในตาราง (หรือลากวาง) วันละ 1 ครั้งจนครบชั่วโมง · คลิกช่องที่วางแล้วเพื่อปรับ';
+      hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> ครั้งละ ' + Math.min(st.hpd, st.remaining) + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกช่องสีเขียวในตารางสัปดาห์ไหนก็ได้ ต่อไปเรื่อย ๆ จนครบ' : '';
+    } else hint = 'เลือกวิชาทางขวา แล้วคลิกคาบในตารางของสัปดาห์ที่ต้องการ (หรือลากวาง) · ช่องสีเทาคือตารางรายสัปดาห์ · คลิกช่องสีที่วางแล้วเพื่อปรับหรือย้าย';
     return '<div class="tools" role="toolbar" aria-label="เครื่องมือตารางทั้งเทอม">' +
       '<div class="tool-group"><span class="tg-label">เลื่อนเวลา</span>' +
       '<button class="btn small" data-tsh="-1"' + dis(x && x.start > 1) + ' aria-label="เลื่อนให้เร็วขึ้น 1 คาบ">← เร็วขึ้น</button>' +
@@ -1522,57 +1528,71 @@
       '</div><div class="tool-hint' + (x || ui.termPick ? ' on' : '') + '">' + ICON.info + '<span>' + hint + '</span></div>';
   }
 
+  /** แถบเลขสัปดาห์ (ค้างไว้ใต้หัวหน้าเว็บ) คลิกเพื่อเลื่อนไปตารางสัปดาห์นั้น */
+  function termStrip(ent) {
+    const v = VIEWS[ui.view];
+    const idx = TT.indexState(state);
+    const hrs = new Map();
+    for (const x of state.sessions) {
+      const a = idx.assignments.get(x.assignmentId);
+      if (a && v.match(a, ent.id)) hrs.set(x.week, (hrs.get(x.week) || 0) + x.len);
+    }
+    let html = '<nav class="week-strip" aria-label="ไปยังสัปดาห์"><span class="ws-label">สัปดาห์</span>';
+    for (let w = 1; w <= state.settings.weeks; w++) {
+      const h = hrs.get(w) || 0;
+      html += '<button data-jump="' + w + '" class="' + (h ? 'has' : '') + '" title="สัปดาห์ที่ ' + w + (h ? ' · ทั้งเทอม ' + h + ' ชม.' : '') + '"><b>' + w + '</b><small>' + (h ? h + 'ชม.' : '–') + '</small></button>';
+    }
+    return html + '</nav>';
+  }
+
+  /** ตารางทั้งเทอม = ตาราง วัน × คาบ แบบเดียวกับรายสัปดาห์ 18 ตาราง (สัปดาห์ละ 1 ตาราง) */
   function termGrid(ent, conflicts) {
     const s = state.settings;
     const v = VIEWS[ui.view];
     const idx = TT.indexState(state);
-    const pers = TT.periods(s);
-    const NP = pers.length;
-    const mine = new Set(state.assignments.filter((a) => TT.isTerm(a) && v.match(a, ent.id)).map((a) => a.id));
-    const weeklyMine = state.assignments.filter((a) => !TT.isTerm(a) && v.match(a, ent.id));
     const blocked = TT.blockedCells(s);
-    // ชั่วโมงที่ใช้ไปแล้วต่อวัน จากตารางรายสัปดาห์ (ซ้ำทุกสัปดาห์)
-    const weeklyUsed = s.days.map(() => new Set());
-    for (const pl of state.placements) {
-      const a = idx.assignments.get(pl.assignmentId);
-      if (!a || !weeklyMine.includes(a)) continue;
-      const len = TT.assignmentBlocks(a, idx.subjects)[pl.blockIndex] || 0;
-      for (let p = pl.start; p < pl.start + len; p++) weeklyUsed[pl.day].add(p);
-    }
-    const cells = new Map();
+    const unav = new Set(ent.unavailable || []);
+    // ตารางรายสัปดาห์ของคนนี้ แสดงเป็นสีเทาในทุกสัปดาห์ (แก้ไม่ได้จากตรงนี้)
+    const weekly = P.cellItems(state, (a) => v.match(a, ent.id), ui.view, true).map((it) => ({
+      ...it, static: true, cls: 'ghost' + (it.recurring ? ' fixed' : ''), title: it.title + '\n(ตารางรายสัปดาห์ — ทุกสัปดาห์)',
+    }));
+    const byWeek = new Map();
     for (const x of state.sessions) {
       const a = idx.assignments.get(x.assignmentId);
       if (!a || !v.match(a, ent.id)) continue;
-      const k = x.week + '|' + x.day;
-      if (!cells.has(k)) cells.set(k, []);
-      cells.get(k).push({ x, a });
+      if (!byWeek.has(x.week)) byWeek.set(x.week, []);
+      byWeek.get(x.week).push({ x, a });
     }
-    let html = '<table class="term-grid"><thead><tr><th class="wk">สัปดาห์</th>' + s.days.map((d) => '<th>' + esc(d) + '</th>').join('') + '</tr></thead><tbody>';
+    const sessItem = ({ x, a }) => {
+      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      const room = a.roomId ? idx.rooms.get(a.roomId) : null;
+      const teacher = idx.teachers.get(a.teacherId);
+      const groups = a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean);
+      const lines = [esc(sj ? sj.code : a.title) + ' <small>' + x.len + ' ชม.</small>'];
+      if (ui.view !== 'room' && room) lines.push(esc(room.name));
+      if (ui.view !== 'teacher') lines.push(teacher ? esc(teacher.name) : '<span class="no-teacher">ยังไม่มีครู</span>');
+      if (ui.view !== 'group' && groups.length) lines.push(esc(groups.join(', ')));
+      const bad = conflicts.byPlacement.get('S:' + x.id);
+      return {
+        key: 'S:' + x.id,
+        day: x.day,
+        start: x.start,
+        len: x.len,
+        cls: [P.colorClass(state, a), bad ? 'conflict' : '', ui.termSel === x.id ? 'selected' : '', x.len === 1 ? 'w1' : ''].join(' '),
+        title: (sj ? sj.code + ' ' + sj.name : a.title) + '\nสัปดาห์ที่ ' + x.week + (bad ? '\n⚠ ' + [...bad].join('\n⚠ ') : ''),
+        html: lines.map((l, i) => '<div class="' + (i ? 'c-line' : 'c-code') + '">' + l + '</div>').join(''),
+      };
+    };
+    let grids = '';
     for (let w = 1; w <= s.weeks; w++) {
-      html += '<tr><th class="wk">' + w + '</th>';
-      s.days.forEach((dayName, d) => {
-        if (s.closedDays.includes(dayName)) {
-          html += '<td class="closed"><div class="tc">' + (w === 1 ? 'ห้ามจัด' : '') + '</div></td>';
-          return;
-        }
-        const list = (cells.get(w + '|' + d) || []).sort((p1, p2) => p1.x.start - p2.x.start);
-        let used = weeklyUsed[d].size;
-        for (let p = 1; p <= NP; p++) if (blocked.has(TT.cellKey(d, p)) && !weeklyUsed[d].has(p)) used++;
-        list.forEach((it) => (used += it.x.len));
-        const free = Math.max(0, NP - used);
-        const pills = list.map(({ x, a }) => {
-          const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
-          const bad = conflicts.byPlacement.get('S:' + x.id);
-          return '<button class="pill ' + P.colorClass(state, a) + (bad ? ' conflict' : '') + (ui.termSel === x.id ? ' selected' : '') + (mine.has(a.id) ? '' : ' other') +
-            '" data-sid="' + esc(x.id) + '" draggable="true" title="' + esc((sj ? sj.code + ' ' + sj.name : a.title) + '\nคาบ ' + x.start + '–' + (x.start + x.len - 1) + ' (' + x.len + ' ชม.)' + (bad ? '\n⚠ ' + [...bad].join('\n⚠ ') : '')) + '">' +
-            '<b>' + esc(sj ? sj.code : a.title) + '</b><span>' + x.len + ' ชม.</span></button>';
-        }).join('');
-        html += '<td data-w="' + w + '" data-d="' + d + '"><div class="tc">' + pills +
-          '<span class="free' + (free ? '' : ' none') + '">' + (weeklyUsed[d].size ? 'ประจำ ' + weeklyUsed[d].size + ' · ' : '') + 'ว่าง ' + free + '</span></div></td>';
-      });
-      html += '</tr>';
+      const list = byWeek.get(w) || [];
+      const hrs = list.reduce((n, it) => n + it.x.len, 0);
+      grids += '<div class="term-week" data-week="' + w + '" id="tw-' + w + '">' +
+        '<div class="tw-head"><b>สัปดาห์ที่ ' + w + '</b><span>' + (hrs ? 'ทั้งเทอม ' + hrs + ' ชม.' : 'ยังไม่มีวิชาทั้งเทอม') + '</span></div>' +
+        buildGrid({ state, items: weekly.concat(list.map(sessItem)), editable: true, unavailable: unav, blocked }) + '</div>';
     }
-    return html + '</tbody></table>';
+    return '<div class="legend term-legend"><span><i class="lg ghost"></i>ตารางรายสัปดาห์ (ทุกสัปดาห์)</span><span><i class="lg c0"></i><i class="lg c3"></i><i class="lg c6"></i>วิชาทั้งเทอม</span>' +
+      '<span><i class="lg can"></i>วางได้</span><span><i class="lg hatch"></i>ห้ามจัด / ไม่ว่าง</span></div>' + grids;
   }
 
   function termSide(ent, conflicts) {
@@ -1607,76 +1627,102 @@
     return html + rulesCard();
   }
 
-  function highlightTerm(assignmentId) {
-    $$('#termwrap td.can, #termwrap td.full').forEach((td) => td.classList.remove('can', 'full'));
+  function highlightTerm(assignmentId, skipId) {
+    $$('#termwrap td.can, #termwrap td.clash, #termwrap td.nospan').forEach((td) => {
+      td.classList.remove('can', 'clash', 'nospan');
+      td.removeAttribute('title');
+    });
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
+    const moving = skipId && state.sessions.find((y) => y.id === skipId);
     const st = TT.termStatus(state, a);
-    if (!st.remaining) return;
-    const len = Math.min(st.hpd, st.remaining);
-    const idx = TT.indexState(state);
-    const cache = { idx, pers: TT.periods(state.settings), weekly: TT.buildOccupancy(state, idx), sOcc: TT.buildSessionOccupancy(state, idx), blocked: TT.blockedCells(state.settings) };
-    const NP = cache.pers.length;
-    $$('#termwrap td[data-w]').forEach((td) => {
-      const w = Number(td.dataset.w);
-      const d = Number(td.dataset.d);
-      let ok = false;
-      for (let s = 1; s + len - 1 <= NP && !ok; s++) ok = TT.checkSession(state, a, w, d, s, len, null, cache).ok;
-      td.classList.add(ok ? 'can' : 'full');
+    const len = moving ? moving.len : Math.min(st.hpd, st.remaining);
+    if (!len) return;
+    const cache = TT.termCache(state, skipId);
+    $$('#termwrap [data-week]').forEach((wk) => {
+      const w = Number(wk.dataset.week);
+      $$('td.empty[data-p]', wk).forEach((td) => {
+        const d = Number(td.dataset.d);
+        const start = TT.snapSession(state, a, w, d, Number(td.dataset.p), len, skipId, cache);
+        if (start == null) { td.classList.add('nospan'); return; }
+        const r = TT.checkSession(state, a, w, d, start, len, skipId, cache);
+        td.classList.add(r.ok ? 'can' : 'clash');
+        td.title = (r.ok ? 'วางได้: ' : 'ชน: ') + 'คาบ ' + start + '–' + (start + len - 1) + (r.ok ? '' : '\n' + r.reasons.join('\n'));
+      });
     });
   }
 
-  function termPlace(assignmentId, week, day) {
-    const r = TT.addSession(state, assignmentId, week, day);
-    if (!r.ok) { toast(r.reason, true); return; }
+  /** วางวิชาทั้งเทอมที่สัปดาห์/วัน/คาบที่คลิก (เลื่อนคาบเริ่มให้พอดี ถ้าว่างไม่พอจะลดชั่วโมงลง) */
+  function termPlace(assignmentId, week, day, p) {
     const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a) return;
     const st = TT.termStatus(state, a);
-    if (!st.remaining) { ui.termPick = null; toast('ครบ ' + st.total + ' ชั่วโมงแล้ว (' + st.days + ' วัน)'); }
-    else if (r.session.len < st.hpd && r.session.len < st.remaining + r.session.len) toast('วันนั้นว่างไม่พอ วางได้ ' + r.session.len + ' ชม.');
+    if (!st.remaining) { toast('ครบ ' + st.total + ' ชั่วโมงแล้ว', true); return; }
+    const cache = TT.termCache(state);
+    let len = Math.min(st.hpd, st.remaining);
+    let start = null;
+    for (let n = len; n >= 1 && start == null; n--) {
+      const s0 = TT.snapSession(state, a, week, day, p, n, null, cache);
+      if (s0 != null && TT.checkSession(state, a, week, day, s0, n, null, cache).ok) { start = s0; len = n; }
+    }
+    if (start == null) {
+      start = TT.snapSession(state, a, week, day, p, len, null, cache);
+      if (start == null) { toast('ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
+      const chk = TT.checkSession(state, a, week, day, start, len, null, cache);
+      if (!confirm('ช่วงนี้จะชนกัน:\n- ' + chk.reasons.join('\n- ') + '\n\nต้องการวางต่อไหม?')) return;
+    }
+    TT.addSession(state, assignmentId, week, day, { start, len });
+    const after = TT.termStatus(state, a);
+    if (!after.remaining) { ui.termPick = null; toast('ครบ ' + after.total + ' ชั่วโมงแล้ว (' + after.days + ' วัน)'); }
+    else if (len < Math.min(st.hpd, st.remaining)) toast('ช่วงนั้นว่างไม่พอ วางได้ ' + len + ' ชม. เหลืออีก ' + after.remaining + ' ชม.');
     commit();
   }
 
-  function termMove(sessionId, week, day) {
+  /** ย้ายวันที่วางไว้ ไปสัปดาห์/วัน/คาบใหม่ */
+  function termMove(sessionId, week, day, p) {
     const x = state.sessions.find((y) => y.id === sessionId);
     if (!x) return;
-    const old = { ...x };
-    state.sessions = state.sessions.filter((y) => y !== x);
-    const r = TT.addSession(state, x.assignmentId, week, day, { len: x.len });
-    if (!r.ok) {
-      state.sessions.push(old);
-      toast(r.reason, true);
-      return;
-    }
-    if (r.session.len < old.len) toast('วันนั้นว่างไม่พอ ย้ายได้ ' + r.session.len + ' ชม. ส่วนที่เหลือกลับไปรอวาง');
-    ui.termSel = r.session.id;
+    const a = state.assignments.find((y) => y.id === x.assignmentId);
+    const start = TT.snapSession(state, a, week, day, p, x.len, x.id);
+    if (start == null) { toast('ช่วงนี้วาง ' + x.len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
+    const chk = TT.checkSession(state, a, week, day, start, x.len, x.id);
+    if (!chk.ok && !confirm('ช่วงนี้จะชนกัน:\n- ' + chk.reasons.join('\n- ') + '\n\nต้องการย้ายต่อไหม?')) return;
+    Object.assign(x, { week, day, start });
     commit();
   }
 
   function bindTerm(el, ent) {
     const wrap = $('#termwrap', el);
     const v = VIEWS[ui.view];
+    const at = (td) => [Number(td.closest('[data-week]').dataset.week), Number(td.dataset.d), Number(td.dataset.p)];
+    $$('[data-jump]', el).forEach((b) => (b.onclick = () => {
+      const t = $('#tw-' + b.dataset.jump);
+      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
     wrap.onclick = (e) => {
-      const pill = e.target.closest('[data-sid]');
-      if (pill) { ui.termSel = ui.termSel === pill.dataset.sid ? null : pill.dataset.sid; ui.termPick = null; render(); return; }
-      const td = e.target.closest('td[data-w]');
+      const td = e.target.closest('[data-week] td[data-p]');
       if (!td) return;
-      if (ui.termPick) termPlace(ui.termPick, Number(td.dataset.w), Number(td.dataset.d));
-      else if (ui.termSel) termMove(ui.termSel, Number(td.dataset.w), Number(td.dataset.d));
+      const key = td.dataset.key;
+      if (key && key.startsWith('S:')) { const id = key.slice(2); ui.termSel = ui.termSel === id ? null : id; ui.termPick = null; render(); return; }
+      if (ui.mode === 'unav' || key) return;
+      if (ui.termPick) termPlace(ui.termPick, ...at(td));
+      else if (ui.termSel) termMove(ui.termSel, ...at(td));
     };
-    wrap.ondragover = (e) => { if (e.target.closest('td[data-w]')) e.preventDefault(); };
+    wrap.ondragover = (e) => { if (e.target.closest('[data-week] td[data-p]')) e.preventDefault(); };
     wrap.ondrop = (e) => {
-      const td = e.target.closest('td[data-w]');
+      const td = e.target.closest('[data-week] td[data-p]');
       const data = e.dataTransfer.getData('text/plain');
       if (!td || !data) return;
       e.preventDefault();
       const [kind, id] = data.split(':');
-      if (kind === 'term') termPlace(id, Number(td.dataset.w), Number(td.dataset.d));
-      else if (kind === 'sess') termMove(id, Number(td.dataset.w), Number(td.dataset.d));
+      if (kind === 'term') termPlace(id, ...at(td));
+      else if (kind === 'sess') termMove(id, ...at(td));
     };
-    $$('[data-sid]', el).forEach((n) => (n.ondragstart = (e) => {
-      e.dataTransfer.setData('text/plain', 'sess:' + n.dataset.sid);
-      const x = state.sessions.find((y) => y.id === n.dataset.sid);
-      if (x) setTimeout(() => highlightTerm(x.assignmentId), 0);
+    $$('#termwrap td[data-key^="S:"]', el).forEach((n) => (n.ondragstart = (e) => {
+      const id = n.dataset.key.slice(2);
+      e.dataTransfer.setData('text/plain', 'sess:' + id);
+      const x = state.sessions.find((y) => y.id === id);
+      if (x) setTimeout(() => highlightTerm(x.assignmentId, id), 0);
     }));
     $$('[data-term]', el).forEach((c) => {
       c.onclick = () => { ui.termPick = ui.termPick === c.dataset.term ? null : c.dataset.term; ui.termSel = null; render(); };
@@ -1728,6 +1774,10 @@
     const rm = $('#ts-remove', el);
     if (rm) rm.onclick = () => { state.sessions = state.sessions.filter((x) => x.id !== ui.termSel); ui.termSel = null; commit(); };
     if (ui.termPick) highlightTerm(ui.termPick);
+    else if (ui.termSel) {
+      const x = state.sessions.find((y) => y.id === ui.termSel);
+      if (x) highlightTerm(x.assignmentId, x.id);
+    }
   }
 
   /* ---------------------------------- พิมพ์ ---------------------------------- */

@@ -431,6 +431,32 @@ table.term-grid .free.none { color: var(--warn); }
   .cal-switch { max-width: none; }
 }
 
+/* ---------- ตารางทั้งเทอม: 18 ตาราง ---------- */
+.week-strip { display: flex; align-items: stretch; gap: 3px; position: sticky; top: 72px; z-index: 5; background: var(--panel); padding: 6px; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 12px rgba(29,28,26,.06); overflow-x: auto; }
+.week-strip .ws-label { display: flex; align-items: center; font-size: 12px; color: var(--muted); padding: 0 6px 0 4px; }
+.week-strip button { flex: 1 0 38px; }
+.week-strip button { display: flex; flex-direction: column; align-items: center; padding: 4px 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; line-height: 1.2; }
+.week-strip button b { font-size: 13px; }
+.week-strip button small { font-size: 10px; color: var(--muted); }
+.week-strip button.has { background: var(--accent-soft); border-color: var(--accent-line); }
+.week-strip button.has small { color: var(--accent); }
+.week-strip button:hover { border-color: var(--accent); }
+.term-legend { margin-bottom: 12px; }
+.term-week { margin-bottom: 18px; scroll-margin-top: 150px; }
+.term-week:last-child { margin-bottom: 0; }
+.tw-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 2px 8px; border-top: 2px solid var(--line); }
+.term-week:first-of-type .tw-head { border-top: 0; }
+.tw-head b { font-size: 15px; }
+.tw-head span { font-size: 12px; color: var(--muted); }
+table.tt-grid td.blk.ghost .bi { background: #F1EFEA; border: 1px solid #E4E2DC; color: #8A8780; }
+table.tt-grid td.blk.ghost.fixed .bi { border-style: dashed; }
+table.tt-grid td.blk.ghost { cursor: default; }
+.lg.ghost { background: #F1EFEA; border: 1px solid #E4E2DC; }
+.switch-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.switch-row input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); }
+.switch-row span { display: flex; flex-direction: column; gap: 2px; }
+.switch-row small { color: var(--muted); font-size: 12px; }
+
 /* ---------- ตรวจสอบข้อมูล ---------- */
 .count-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; font-size: 11px; font-weight: 700; display: none; align-items: center; justify-content: center; }
 .count-badge.bad, .count-badge.warn { display: inline-flex; }
@@ -472,6 +498,7 @@ table.data tr.dup-row-t { background: #FFF6F4; }
   .side-list { position: static; max-height: 320px; }
 }
 @media (max-width: 700px) {
+  .week-strip { top: 0; }
   main { padding: 16px; }
   .app-header { position: static; gap: 10px 16px; padding: 10px 16px; }
   #steps { order: 3; flex-basis: 100%; overflow-x: auto; }
@@ -513,9 +540,14 @@ table.data tr.dup-row-t { background: #FFF6F4; }
 .page table.tt-grid .c-line { font-size: 9.5px; color: #000 !important; opacity: 1; white-space: normal; }
 .page table.tt-grid .c-code { white-space: normal; }
 .page table.tt-grid td.blk .bi { color: #000 !important; }
-.page table.list.term-print { margin-top: 8px; font-size: 10px; }
-.page table.list.term-print td { height: 16px; }
-.page table.list.term-print small { font-size: 9px; }
+.page .note { margin-top: 8px; font-size: 11px; color: #333; }
+.page.term-weeks { display: flex; flex-direction: column; gap: 6mm; }
+.page .tw-title { font-size: 12px; margin-bottom: 2px; }
+.page.term-weeks table.tt-grid { margin-top: 2px; }
+.page.term-weeks table.tt-grid th, .page.term-weeks table.tt-grid td { height: 30px; }
+.page.term-weeks table.tt-grid tr.pno-row th, .page.term-weeks table.tt-grid thead th { height: auto; }
+.page table.tt-grid td.blk.w1 .c-line { display: none; }
+.page table.tt-grid td.blk.w1 .c-code { font-size: 9px; word-break: break-all; }
 .page .sigs { display: grid; gap: 8px; margin-top: 14px; text-align: center; }
 .page .sigs.four { grid-template-columns: repeat(4, 1fr); }
 .page .sigs.three { grid-template-columns: repeat(3, 1fr); }

@@ -40,6 +40,7 @@
         blocked: [],
         recurring: [defaultRecurring()],
         weeks: 18,
+        checkRooms: false,
       },
       departments: [],
       teachers: [],
@@ -146,6 +147,7 @@
   function indexState(state) {
     const by = (arr) => new Map(arr.map((x) => [x.id, x]));
     return {
+      checkRooms: !!(state.settings && state.settings.checkRooms),
       departments: by(state.departments),
       teachers: by(state.teachers),
       subjects: by(state.subjects),
@@ -188,12 +190,15 @@
     return assignmentId + '#' + blockIndex;
   }
 
-  /** รหัสทรัพยากรที่ห้ามชน: ครู กลุ่มเรียน และห้องที่ไม่ได้ตั้งเป็น "ใช้ร่วมได้" */
+  /**
+   * รหัสทรัพยากรที่ห้ามชน: ครู กลุ่มเรียน
+   * ห้องจะตรวจเฉพาะเมื่อเปิด "ตรวจห้องเรียนชนกัน" ในเงื่อนไข (ค่าเริ่มต้นไม่ตรวจ) และห้องไม่ได้ตั้งเป็น "ใช้ร่วมได้"
+   */
   function resourceKeys(a, idx) {
     const keys = [];
     if (a.teacherId) keys.push('t:' + a.teacherId);
     for (const g of a.groupIds || []) keys.push('g:' + g);
-    if (a.roomId) {
+    if (a.roomId && idx.checkRooms) {
       const r = idx.rooms.get(a.roomId);
       if (r && !r.shared) keys.push('r:' + a.roomId);
     }
@@ -727,6 +732,22 @@
     return { idx, pers: periods(state.settings), weekly: buildOccupancy(state, idx), sOcc: buildSessionOccupancy(state, idx, skipId), blocked: blockedCells(state.settings) };
   }
 
+  /**
+   * ผู้ใช้คลิกคาบ p ในตารางของสัปดาห์ week: หาคาบเริ่มให้ session ยาว len ครอบคาบ p
+   * เลือกตำแหน่งที่ไม่ชนก่อน ถ้าไม่มีคืนตำแหน่งแรกที่ไม่เลยขอบ (ชน) หรือ null
+   */
+  function snapSession(state, a, week, day, p, len, skipId, cache) {
+    cache = cache || termCache(state, skipId);
+    let fallback = null;
+    for (let st = p; st >= Math.max(1, p - len + 1); st--) {
+      const r = checkSession(state, a, week, day, st, len, skipId, cache);
+      if (!r.span) continue;
+      if (r.ok) return st;
+      if (fallback == null) fallback = st;
+    }
+    return fallback;
+  }
+
   /** หาคาบเริ่มที่ว่างในวันนั้น (ลองคาบเริ่มที่ต้องการก่อน) */
   function findFreeStart(state, a, week, day, len, cache, skipId) {
     const P = cache.pers.length;
@@ -1143,6 +1164,8 @@
     termTotal,
     termStatus,
     checkSession,
+    snapSession,
+    termCache,
     snapStart,
     shiftSession,
     addSession,

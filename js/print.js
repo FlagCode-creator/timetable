@@ -166,40 +166,45 @@
       buildGrid({ state, items }) + '</section>';
   }
 
-  /** ตารางทั้งเทอม (สัปดาห์ × วัน) ของครู/กลุ่มเรียน */
+  /** ตารางทั้งเทอม: หน้าสรุป + ตารางจริงของแต่ละสัปดาห์ (รายสัปดาห์ + ทั้งเทอม) หน้าละ 2 สัปดาห์ */
   function termPage(state, ent, kind) {
     const s = state.settings;
     const idx = TT.indexState(state);
-    const pers = TT.periods(s);
     const match = kind === 'group' ? (a) => a.groupIds.includes(ent.id) : (a) => a.teacherId === ent.id;
+    const view = kind === 'group' ? 'group' : 'teacher';
     const mine = state.assignments.filter((a) => TT.isTerm(a) && match(a));
-    const ids = new Set(mine.map((a) => a.id));
-    const cell = new Map();
-    for (const x of state.sessions) {
-      if (!ids.has(x.assignmentId)) continue;
-      const a = idx.assignments.get(x.assignmentId);
-      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
-      const k = x.week + '|' + x.day;
-      if (!cell.has(k)) cell.set(k, []);
-      cell.get(k).push({ start: x.start, text: esc(sj ? sj.code : a.title) + ' <small>' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + '</small>' });
-    }
+    const weekly = cellItems(state, match, view);
     const rows = mine.map((a) => {
       const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const st = TT.termStatus(state, a, idx.subjects);
       const who = kind === 'group' ? (idx.teachers.get(a.teacherId) || {}).name || '' : a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean).join(', ');
-      return '<tr><td class="code">' + esc(sj ? sj.code : a.title) + '</td><td class="name">' + esc(sj ? sj.name : '') + '</td><td class="name">' + esc(who) +
+      return '<tr><td class="code">' + esc(sj ? sj.code : a.title) + '</td><td class="l">' + esc(sj ? sj.name : '') + '</td><td class="l">' + esc(who) +
         '</td><td>' + st.total + '</td><td>' + st.placed + '</td><td>' + st.days + '</td></tr>';
     }).join('');
-    let grid = '<table class="list term-print"><thead><tr><th>สัปดาห์</th>' + s.days.map((d) => '<th>' + esc(d) + '</th>').join('') + '</tr></thead><tbody>';
-    for (let w = 1; w <= s.weeks; w++) {
-      grid += '<tr><th>' + w + '</th>' + s.days.map((_, d) => '<td>' + (cell.get(w + '|' + d) || []).sort((a, b) => a.start - b.start).map((c) => c.text).join('<br>') + '</td>').join('') + '</tr>';
+    const sessItems = (w) => state.sessions.filter((x) => x.week === w && mine.some((a) => a.id === x.assignmentId)).map((x) => {
+      const a = idx.assignments.get(x.assignmentId);
+      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      const room = a.roomId ? idx.rooms.get(a.roomId) : null;
+      const who = kind === 'group' ? (idx.teachers.get(a.teacherId) || {}).name || '' : a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean).join(', ');
+      return { key: 'S:' + x.id, day: x.day, start: x.start, len: x.len,
+        html: '<div class="c-code">' + esc(sj ? sj.code : a.title) + ' *</div>' + (room ? '<div class="c-line">' + esc(room.name) + '</div>' : '') + '<div class="c-line">' + esc(who) + '</div>' };
+    });
+    const head = '<h2>ตารางทั้งเทอม ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</h2>' +
+      '<div class="center">' + esc(s.collegeName) + ' · ' + (kind === 'group' ? 'กลุ่มเรียน ' : 'ผู้สอน ') + esc(ent.name) + '</div>';
+    let html = '<section class="page detail">' + head +
+      (rows ? '<table class="list"><thead><tr><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>' + (kind === 'group' ? 'ครูผู้สอน' : 'กลุ่มเรียน') + '</th><th>ชม.ทั้งเทอม</th><th>จัดแล้ว</th><th>จำนวนวัน</th></tr></thead><tbody>' + rows + '</tbody></table>'
+        : '<p>ไม่มีวิชาที่จัดแบบทั้งเทอม</p>') +
+      '<p class="note">ตารางแต่ละสัปดาห์ในหน้าถัดไป แสดงตารางรายสัปดาห์รวมกับวิชาทั้งเทอม (วิชาทั้งเทอมมีเครื่องหมาย *)</p></section>';
+    for (let w = 1; w <= s.weeks; w += 2) {
+      html += '<section class="page term-weeks">';
+      for (const ww of [w, w + 1]) {
+        if (ww > s.weeks) break;
+        html += '<div class="tw-print"><div class="tw-title"><b>สัปดาห์ที่ ' + ww + '</b> · ' + esc(ent.name) + ' · ภาคเรียน ' + esc(s.semester) + '/' + esc(s.year) + '</div>' +
+          buildGrid({ state, items: weekly.concat(sessItems(ww)) }) + '</div>';
+      }
+      html += '</section>';
     }
-    grid += '</tbody></table>';
-    return '<section class="page detail">' +
-      '<h2>ตารางทั้งเทอม ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</h2>' +
-      '<div class="center">' + esc(s.collegeName) + ' · ' + (kind === 'group' ? 'กลุ่มเรียน ' : 'ผู้สอน ') + esc(ent.name) + '</div>' +
-      (rows ? '<table class="list"><thead><tr><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>' + (kind === 'group' ? 'ครูผู้สอน' : 'กลุ่มเรียน') + '</th><th>ชม.ทั้งเทอม</th><th>จัดแล้ว</th><th>จำนวนวัน</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p>ไม่มีวิชาที่จัดแบบทั้งเทอม</p>') +
-      grid + '</section>';
+    return html;
   }
 
   root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage };
