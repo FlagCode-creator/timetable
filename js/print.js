@@ -19,6 +19,15 @@
     return s.logo ? '<img class="logo" src="' + esc(s.logo) + '" alt="">' : '';
   }
 
+  /** สีประจำวิชา (โทนอ่อน 10 สี) ใช้ตำแหน่งรายวิชาในรายการ เพื่อให้วิชาที่อยู่ติดกันได้สีต่างกัน */
+  function colorClass(state, a) {
+    if (a.recurringId) return 'cx';
+    let n;
+    if (a.subjectId) n = state.subjects.findIndex((x) => x.id === a.subjectId);
+    else n = [...String(a.title || '')].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+    return 'c' + (Math.max(0, n) % 10);
+  }
+
   /** เนื้อหาในช่องตารางตามมุมมอง */
   function cellItems(state, filter, view, forEditor) {
     const idx = TT.indexState(state);
@@ -44,6 +53,7 @@
         assignment: a,
         placement: pl,
         recurring: !!a.recurringId,
+        color: colorClass(state, a),
         title: s ? s.code + ' ' + s.name : a.title,
         html: lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : 'c-line') + '">' + l + '</div>').join(''),
       });
@@ -156,5 +166,41 @@
       buildGrid({ state, items }) + '</section>';
   }
 
-  root.TTPrint = { cellItems, teacherPages, groupPage, roomPage };
+  /** ตารางทั้งเทอม (สัปดาห์ × วัน) ของครู/กลุ่มเรียน */
+  function termPage(state, ent, kind) {
+    const s = state.settings;
+    const idx = TT.indexState(state);
+    const pers = TT.periods(s);
+    const match = kind === 'group' ? (a) => a.groupIds.includes(ent.id) : (a) => a.teacherId === ent.id;
+    const mine = state.assignments.filter((a) => TT.isTerm(a) && match(a));
+    const ids = new Set(mine.map((a) => a.id));
+    const cell = new Map();
+    for (const x of state.sessions) {
+      if (!ids.has(x.assignmentId)) continue;
+      const a = idx.assignments.get(x.assignmentId);
+      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      const k = x.week + '|' + x.day;
+      if (!cell.has(k)) cell.set(k, []);
+      cell.get(k).push({ start: x.start, text: esc(sj ? sj.code : a.title) + ' <small>' + (pers[x.start - 1] || {}).start + '–' + (pers[x.start + x.len - 2] || {}).end + '</small>' });
+    }
+    const rows = mine.map((a) => {
+      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      const st = TT.termStatus(state, a, idx.subjects);
+      const who = kind === 'group' ? (idx.teachers.get(a.teacherId) || {}).name || '' : a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean).join(', ');
+      return '<tr><td class="code">' + esc(sj ? sj.code : a.title) + '</td><td class="name">' + esc(sj ? sj.name : '') + '</td><td class="name">' + esc(who) +
+        '</td><td>' + st.total + '</td><td>' + st.placed + '</td><td>' + st.days + '</td></tr>';
+    }).join('');
+    let grid = '<table class="list term-print"><thead><tr><th>สัปดาห์</th>' + s.days.map((d) => '<th>' + esc(d) + '</th>').join('') + '</tr></thead><tbody>';
+    for (let w = 1; w <= s.weeks; w++) {
+      grid += '<tr><th>' + w + '</th>' + s.days.map((_, d) => '<td>' + (cell.get(w + '|' + d) || []).sort((a, b) => a.start - b.start).map((c) => c.text).join('<br>') + '</td>').join('') + '</tr>';
+    }
+    grid += '</tbody></table>';
+    return '<section class="page detail">' +
+      '<h2>ตารางทั้งเทอม ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</h2>' +
+      '<div class="center">' + esc(s.collegeName) + ' · ' + (kind === 'group' ? 'กลุ่มเรียน ' : 'ผู้สอน ') + esc(ent.name) + '</div>' +
+      (rows ? '<table class="list"><thead><tr><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>' + (kind === 'group' ? 'ครูผู้สอน' : 'กลุ่มเรียน') + '</th><th>ชม.ทั้งเทอม</th><th>จัดแล้ว</th><th>จำนวนวัน</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p>ไม่มีวิชาที่จัดแบบทั้งเทอม</p>') +
+      grid + '</section>';
+  }
+
+  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage };
 })(typeof window !== 'undefined' ? window : globalThis);

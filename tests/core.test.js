@@ -176,3 +176,40 @@ test('อ่านรายชื่อกลุ่มเรียนที่�
   assert.strictEqual(rows[1].size, 17);
   assert.strictEqual(rows[2].name, 'ปวช1.ไฟฟ้า 69');
 });
+
+test('ตารางทั้งเทอม: วิทย์ 54 ชม. วันละ 4 ชม. → 13 วัน + 2 ชม. และไม่ชนกับตารางรายสัปดาห์', () => {
+  const s = mini();
+  s.settings.closedDays = ['ศุกร์'];
+  s.subjects.push({ id: 's3', code: '30000-1404', name: 'แคลคูลัส', t: 3, p: 0, n: 3 });
+  s.assignments.push(
+    { id: 'term', teacherId: 't1', subjectId: 's3', groupIds: ['g1'], blocks: '', plan: 'term', hoursPerDay: 4 },
+    { id: 'wk', teacherId: 't1', subjectId: 's1', groupIds: ['g2'], blocks: '2' },
+  );
+  s.placements.push({ assignmentId: 'wk', blockIndex: 0, day: 0, start: 1 });
+  const subjects = new Map(s.subjects.map((x) => [x.id, x]));
+  assert.strictEqual(TT.termTotal(s, s.assignments[0], subjects), 54);
+  const st0 = TT.termStatus(s, s.assignments[0]);
+  assert.deepStrictEqual([st0.fullDays, st0.extra], [13, 2]);
+  assert.ok(!TT.allBlocks(s).some((b) => b.assignment.id === 'term'), 'วิชาทั้งเทอมไม่อยู่ในตารางรายสัปดาห์');
+
+  const r = TT.fillTerm(s, 'term', 1);
+  assert.strictEqual(r.added, 54);
+  assert.strictEqual(r.remaining, 0);
+  const st = TT.termStatus(s, s.assignments[0]);
+  assert.strictEqual(st.days, 14);
+  assert.deepStrictEqual(s.sessions.map((x) => x.len).sort((a, b) => a - b)[0], 2);
+  assert.ok(s.sessions.every((x) => x.day !== 4), 'ไม่วางวันศุกร์');
+  // วันจันทร์ครูติดคาบ 1-2 ทุกสัปดาห์ → session วันจันทร์ต้องเริ่มหลังคาบ 2
+  assert.ok(s.sessions.filter((x) => x.day === 0).every((x) => x.start >= 3));
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  assert.strictEqual(TT.addSession(s, 'term', 18, 0).ok, false, 'ครบแล้ววางเพิ่มไม่ได้');
+
+  // วางตารางรายสัปดาห์ทับ session → ตรวจเจอ
+  const chk = TT.checkPlacement(s, s.assignments[1], 0, 1, 1);
+  assert.strictEqual(chk.ok, false);
+  assert.match(chk.reasons.join(), /ทั้งเทอม/);
+  // เปลี่ยนกลับเป็นรายสัปดาห์ → session ถูกล้าง
+  s.assignments[0].plan = 'weekly';
+  TT.sanitizePlacements(s);
+  assert.strictEqual(s.sessions.length, 0);
+});

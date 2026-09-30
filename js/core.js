@@ -39,6 +39,7 @@
         closedDays: [],
         blocked: [],
         recurring: [defaultRecurring()],
+        weeks: 18,
       },
       departments: [],
       teachers: [],
@@ -47,6 +48,7 @@
       rooms: [],
       assignments: [],
       placements: [],
+      sessions: [],
     };
   }
 
@@ -62,7 +64,8 @@
     for (const k of ['closedDays', 'blocked', 'recurring']) {
       if (!Array.isArray(out.settings[k])) out.settings[k] = base.settings[k];
     }
-    for (const k of ['departments', 'teachers', 'subjects', 'groups', 'rooms', 'assignments', 'placements']) {
+    out.settings.weeks = Math.max(1, Math.min(40, Number(out.settings.weeks) || 18));
+    for (const k of ['departments', 'teachers', 'subjects', 'groups', 'rooms', 'assignments', 'placements', 'sessions']) {
       if (!Array.isArray(out[k])) out[k] = [];
     }
     for (const t of out.teachers) if (!Array.isArray(t.unavailable)) t.unavailable = [];
@@ -165,6 +168,22 @@
     return assignmentBlocks(a, subjectsById).reduce((x, y) => x + y, 0);
   }
 
+  /** วิชาที่จัดแบบ "ตารางทั้งเทอม" (วางเป็นรายวันใน 18 สัปดาห์ จนครบชั่วโมง) */
+  function isTerm(a) {
+    return !!a && a.plan === 'term';
+  }
+
+  function hoursPerDay(a) {
+    return Math.max(1, Math.min(13, Number(a.hoursPerDay) || 4));
+  }
+
+  /** ชั่วโมงทั้งเทอม = ชม./สัปดาห์ × จำนวนสัปดาห์ (หรือค่าที่กำหนดเอง) */
+  function termTotal(state, a, subjectsById) {
+    if (Number(a.totalHours) > 0) return Number(a.totalHours);
+    const subjects = subjectsById || new Map(state.subjects.map((x) => [x.id, x]));
+    return assignmentHours(a, subjects) * state.settings.weeks;
+  }
+
   function placementKey(assignmentId, blockIndex) {
     return assignmentId + '#' + blockIndex;
   }
@@ -195,9 +214,15 @@
       const key = placementKey(pl.assignmentId, pl.blockIndex);
       if (seen.has(key)) return false;
       if (pl.day < 0 || pl.day >= state.settings.days.length) return false;
+      if (isTerm(a)) return false;
       if (!canSpan(pers, pl.start, blocks[pl.blockIndex], !!a.blockCourse)) return false;
       seen.add(key);
       return true;
+    });
+    state.sessions = (state.sessions || []).filter((x) => {
+      const a = idx.assignments.get(x.assignmentId);
+      return isTerm(a) && x.week >= 1 && x.week <= state.settings.weeks &&
+        x.day >= 0 && x.day < state.settings.days.length && canSpan(pers, x.start, x.len, true);
     });
     return before - state.placements.length;
   }
@@ -208,6 +233,7 @@
     const placed = new Map(state.placements.map((p) => [placementKey(p.assignmentId, p.blockIndex), p]));
     const out = [];
     for (const a of state.assignments) {
+      if (isTerm(a)) continue;
       assignmentBlocks(a, idx.subjects).forEach((len, blockIndex) => {
         const key = placementKey(a.id, blockIndex);
         out.push({ key, assignment: a, blockIndex, len, placement: placed.get(key) || null });
@@ -242,6 +268,45 @@
     return occ;
   }
 
+  /** การใช้ทรัพยากรของตารางทั้งเทอม: resourceKey → Map("week|day|period" → [sessionId]) */
+  function buildSessionOccupancy(state, idx, skipId) {
+    const occ = new Map();
+    for (const x of state.sessions || []) {
+      if (x.id === skipId) continue;
+      const a = idx.assignments.get(x.assignmentId);
+      if (!a) continue;
+      for (const rk of resourceKeys(a, idx)) {
+        let m = occ.get(rk);
+        if (!m) occ.set(rk, (m = new Map()));
+        for (let p = x.start; p < x.start + x.len; p++) {
+          const k = x.week + '|' + x.day + '|' + p;
+          if (!m.has(k)) m.set(k, []);
+          m.get(k).push(x.id);
+        }
+      }
+    }
+    return occ;
+  }
+
+  /** ตารางทั้งเทอมที่ตกวัน/คาบนี้ (ทุกสัปดาห์): resourceKey → Map("day|period" → [สัปดาห์]) */
+  function sessionWeeksByCell(state, idx) {
+    const out = new Map();
+    for (const x of state.sessions || []) {
+      const a = idx.assignments.get(x.assignmentId);
+      if (!a) continue;
+      for (const rk of resourceKeys(a, idx)) {
+        let m = out.get(rk);
+        if (!m) out.set(rk, (m = new Map()));
+        for (let p = x.start; p < x.start + x.len; p++) {
+          const k = cellKey(x.day, p);
+          if (!m.has(k)) m.set(k, []);
+          m.get(k).push(x.week);
+        }
+      }
+    }
+    return out;
+  }
+
   function resourceName(rk, idx) {
     const [type, id] = [rk.slice(0, 1), rk.slice(2)];
     if (type === 't') return 'ครู ' + ((idx.teachers.get(id) || {}).name || '?');
@@ -274,13 +339,17 @@
       const why = blocked.get(cellKey(day, p));
       if (why) reasons.add(why);
     }
+    const termCells = (cache && cache.termCells) || sessionWeeksByCell(state, idx);
     for (const rk of resourceKeys(a, idx)) {
       const m = occ.get(rk);
+      const tm = termCells.get(rk);
       const un = unavailableOf(rk, idx);
       for (let p = start; p < start + len; p++) {
         const ck = cellKey(day, p);
         const others = m && m.get(ck);
         if (others && others.some((k) => k !== skip)) reasons.add(resourceName(rk, idx) + ' มีคาบอื่นแล้ว');
+        const weeks = tm && tm.get(ck);
+        if (weeks) reasons.add(resourceName(rk, idx) + ' มีตารางทั้งเทอมสัปดาห์ที่ ' + [...new Set(weeks)].sort((x, y) => x - y).slice(0, 4).join(', ') + (new Set(weeks).size > 4 ? ' …' : ''));
         if (un && un.has(ck)) reasons.add(resourceName(rk, idx) + ' ไม่ว่าง');
       }
     }
@@ -312,7 +381,28 @@
         if (un && un.has(ck)) add(keys, resourceName(rk, idx) + ' ไม่ว่างในคาบนี้', day, p, rk);
       }
     }
+    // ตารางทั้งเทอม: ชนกันเองในสัปดาห์เดียวกัน หรือชนกับตารางรายสัปดาห์
+    const sOcc = buildSessionOccupancy(state, idx);
+    for (const [rk, m] of sOcc) {
+      const weekly = occ.get(rk);
+      const un = unavailableOf(rk, idx);
+      for (const [k, ids] of m) {
+        const [w, d, p] = k.split('|').map(Number);
+        const keys = ids.map((id) => 'S:' + id);
+        if (ids.length > 1) add(keys, resourceName(rk, idx) + ' ชนกัน (ทั้งเทอม สัปดาห์ที่ ' + w + ')', d, p, rk);
+        const wk = weekly && weekly.get(cellKey(d, p));
+        if (wk) add(keys.concat(wk), resourceName(rk, idx) + ' ตารางทั้งเทอมสัปดาห์ที่ ' + w + ' ชนกับตารางรายสัปดาห์', d, p, rk);
+        if (un && un.has(cellKey(d, p))) add(keys, resourceName(rk, idx) + ' ไม่ว่าง (ทั้งเทอม สัปดาห์ที่ ' + w + ')', d, p, rk);
+      }
+    }
     const blocked = blockedCells(state.settings);
+    for (const x of state.sessions || []) {
+      for (let p = x.start; p < x.start + x.len; p++) {
+        const why = blocked.get(cellKey(x.day, p));
+        const a = idx.assignments.get(x.assignmentId);
+        if (why && a) add(['S:' + x.id], why + ' (ทั้งเทอม สัปดาห์ที่ ' + x.week + ')', x.day, p, resourceKeys(a, idx)[0] || '');
+      }
+    }
     if (blocked.size) {
       for (const pl of state.placements) {
         const a = idx.assignments.get(pl.assignmentId);
@@ -424,6 +514,13 @@
     for (const ck of blockedCells(state.settings).keys()) {
       const [d, p] = ck.split('|').map(Number);
       blockedArr[d * P + p - 1] = 1;
+    }
+    for (const x of state.sessions || []) {
+      const a = idx.assignments.get(x.assignmentId);
+      if (!a || x.day >= D) continue;
+      for (const rk of resourceKeys(a, idx)) {
+        for (let p = x.start; p < x.start + x.len && p <= P; p++) grid(rk)[x.day * P + p - 1]++;
+      }
     }
     const aDays = new Map();
     const groupDay = new Map();
@@ -553,6 +650,126 @@
       unplaced: units.filter((_, i) => !placedIdx.has(i)).map((u) => u.block),
       complete: placedIdx.size === units.length,
     };
+  }
+
+  /* ------------------------------ ตารางทั้งเทอม ------------------------------ */
+
+  function termStatus(state, a, subjectsById) {
+    const total = termTotal(state, a, subjectsById);
+    const mine = (state.sessions || []).filter((x) => x.assignmentId === a.id);
+    const placed = mine.reduce((n, x) => n + x.len, 0);
+    const hpd = hoursPerDay(a);
+    return {
+      total,
+      placed,
+      remaining: Math.max(0, total - placed),
+      hpd,
+      days: new Set(mine.map((x) => x.week + '|' + x.day)).size,
+      fullDays: Math.floor(total / hpd),
+      extra: total % hpd,
+    };
+  }
+
+  /** ตรวจว่าวาง session (สัปดาห์ week วัน day คาบ start ยาว len) ได้ไหม */
+  function checkSession(state, a, week, day, start, len, skipId, cache) {
+    const idx = (cache && cache.idx) || indexState(state);
+    const pers = (cache && cache.pers) || periods(state.settings);
+    if (!canSpan(pers, start, len, true)) return { ok: false, span: false, reasons: ['เกินคาบสุดท้ายของวัน'] };
+    const weekly = (cache && cache.weekly) || buildOccupancy(state, idx);
+    const sOcc = (cache && cache.sOcc) || buildSessionOccupancy(state, idx, skipId);
+    const blocked = (cache && cache.blocked) || blockedCells(state.settings);
+    const reasons = new Set();
+    for (let p = start; p < start + len; p++) {
+      const why = blocked.get(cellKey(day, p));
+      if (why) reasons.add(why);
+    }
+    for (const rk of resourceKeys(a, idx)) {
+      const w = weekly.get(rk);
+      const sm = sOcc.get(rk);
+      const un = unavailableOf(rk, idx);
+      for (let p = start; p < start + len; p++) {
+        if (w && w.get(cellKey(day, p))) reasons.add(resourceName(rk, idx) + ' มีตารางรายสัปดาห์');
+        const ids = sm && sm.get(week + '|' + day + '|' + p);
+        if (ids && ids.some((id) => id !== skipId)) reasons.add(resourceName(rk, idx) + ' มีตารางทั้งเทอมแล้ว');
+        if (un && un.has(cellKey(day, p))) reasons.add(resourceName(rk, idx) + ' ไม่ว่าง');
+      }
+    }
+    return { ok: reasons.size === 0, span: true, reasons: [...reasons] };
+  }
+
+  function termCache(state, skipId) {
+    const idx = indexState(state);
+    return { idx, pers: periods(state.settings), weekly: buildOccupancy(state, idx), sOcc: buildSessionOccupancy(state, idx, skipId), blocked: blockedCells(state.settings) };
+  }
+
+  /** หาคาบเริ่มที่ว่างในวันนั้น (ลองคาบเริ่มที่ต้องการก่อน) */
+  function findFreeStart(state, a, week, day, len, cache, skipId) {
+    const P = cache.pers.length;
+    const pref = Math.max(1, Number(a.termStart) || 1);
+    const starts = [];
+    for (let s = 1; s + len - 1 <= P; s++) starts.push(s);
+    starts.sort((x, y) => (x >= pref ? 0 : 1) - (y >= pref ? 0 : 1) || Math.abs(x - pref) - Math.abs(y - pref));
+    for (const s of starts) if (checkSession(state, a, week, day, s, len, skipId, cache).ok) return s;
+    return null;
+  }
+
+  /**
+   * วางวิชาทั้งเทอม 1 วัน: ยาว = ชม./วัน (หรือเท่าที่เหลือ) ถ้าวันนั้นไม่พอจะลดเหลือเท่าที่ว่าง
+   * คืนค่า { ok, session, reason }
+   */
+  function addSession(state, assignmentId, week, day, opts) {
+    opts = opts || {};
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!isTerm(a)) return { ok: false, reason: 'วิชานี้ไม่ได้ตั้งเป็นตารางทั้งเทอม' };
+    const st = termStatus(state, a);
+    if (!st.remaining) return { ok: false, reason: 'ครบ ' + st.total + ' ชั่วโมงแล้ว' };
+    const cache = termCache(state);
+    let len = Math.min(opts.len || st.hpd, st.remaining);
+    if (opts.start) {
+      const r = checkSession(state, a, week, day, opts.start, len, null, cache);
+      if (!r.span) return { ok: false, reason: r.reasons[0] };
+      const x = { id: uid('s'), assignmentId, week, day, start: opts.start, len };
+      state.sessions.push(x);
+      return { ok: true, session: x, conflicts: r.reasons };
+    }
+    for (; len >= 1; len--) {
+      const s = findFreeStart(state, a, week, day, len, cache);
+      if (s) {
+        const x = { id: uid('s'), assignmentId, week, day, start: s, len };
+        state.sessions.push(x);
+        return { ok: true, session: x };
+      }
+    }
+    return { ok: false, reason: 'วันนี้ไม่มีเวลาว่างพอ' };
+  }
+
+  /** เติมวิชาทั้งเทอมต่อเนื่องทีละวัน ตั้งแต่สัปดาห์ fromWeek จนครบชั่วโมง */
+  function fillTerm(state, assignmentId, fromWeek) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!isTerm(a)) return { added: 0, remaining: 0 };
+    const closed = new Set(state.settings.closedDays || []);
+    let added = 0;
+    for (let w = Math.max(1, fromWeek || 1); w <= state.settings.weeks; w++) {
+      for (let d = 0; d < state.settings.days.length; d++) {
+        if (closed.has(state.settings.days[d])) continue;
+        if (state.sessions.some((x) => x.assignmentId === a.id && x.week === w && x.day === d)) continue;
+        if (!termStatus(state, a).remaining) return { added, remaining: 0 };
+        const r = addSession(state, a.id, w, d);
+        if (r.ok) added += r.session.len;
+      }
+    }
+    return { added, remaining: termStatus(state, a).remaining };
+  }
+
+  /** เพิ่ม/ลดชั่วโมงของ session ที่ท้าย */
+  function resizeSession(state, sessionId, delta) {
+    const x = state.sessions.find((y) => y.id === sessionId);
+    if (!x) return { ok: false, reason: 'ไม่พบ' };
+    const len = x.len + delta;
+    if (len < 1) return { ok: false, reason: 'ต้องมีอย่างน้อย 1 ชั่วโมง' };
+    if (!canSpan(periods(state.settings), x.start, len, true)) return { ok: false, reason: 'เกินคาบสุดท้ายของวัน' };
+    x.len = len;
+    return { ok: true };
   }
 
   /* ------------------------------ กิจกรรมประจำ ------------------------------ */
@@ -748,6 +965,15 @@
   const TT = {
     ALL_DAYS,
     defaultRecurring,
+    isTerm,
+    hoursPerDay,
+    termTotal,
+    termStatus,
+    checkSession,
+    addSession,
+    fillTerm,
+    resizeSession,
+    buildSessionOccupancy,
     blockedCells,
     applyRecurring,
     removeRecurring,
