@@ -1,0 +1,117 @@
+// รันด้วย: node --test tests/
+const test = require('node:test');
+const assert = require('node:assert');
+const TT = require('../js/core.js');
+const { sampleState } = require('../js/sample.js');
+
+function mini() {
+  const s = TT.emptyState();
+  s.teachers.push({ id: 't1', name: 'ครู ก', unavailable: [] }, { id: 't2', name: 'ครู ข', unavailable: [] });
+  s.groups.push({ id: 'g1', code: '1', name: 'กลุ่ม 1', unavailable: [] }, { id: 'g2', code: '2', name: 'กลุ่ม 2', unavailable: [] });
+  s.subjects.push({ id: 's1', code: '20000-1401', name: 'คณิต', t: 2, p: 0, n: 2 }, { id: 's2', code: '30000-1301', name: 'วิทย์', t: 2, p: 2, n: 3 });
+  s.rooms.push({ id: 'r1', name: 'ห้อง 1', shared: false }, { id: 'r2', name: 'สถานประกอบการ', shared: true });
+  return s;
+}
+
+test('โครงสร้างคาบเริ่มต้น: 13 คาบ มีพักกลางวันหลังคาบ 3', () => {
+  const pers = TT.periods(TT.emptyState().settings);
+  assert.strictEqual(pers.length, 13);
+  assert.strictEqual(pers[0].start, '08:00');
+  assert.strictEqual(pers[3].start, '12:00');
+  assert.notStrictEqual(pers[2].seg, pers[3].seg);
+  assert.strictEqual(TT.canSpan(pers, 2, 3, false), false, 'คาบ 2-4 คร่อมพักกลางวัน');
+  assert.strictEqual(TT.canSpan(pers, 2, 3, true), true, 'Block Course ข้ามพักได้');
+  assert.strictEqual(TT.canSpan(pers, 12, 3, true), false, 'เกินคาบสุดท้าย');
+});
+
+test('รูปแบบคาบเริ่มต้นจากชั่วโมง', () => {
+  assert.strictEqual(TT.defaultPattern(3), '3');
+  assert.strictEqual(TT.defaultPattern(4), '2+2');
+  assert.strictEqual(TT.defaultPattern(6), '3+3');
+  assert.strictEqual(TT.defaultPattern(7, true), '7');
+  assert.deepStrictEqual(TT.parsePattern('2 + 1'), [2, 1]);
+  assert.strictEqual(TT.parsePattern('abc'), null);
+});
+
+test('ตรวจชน: ครูเดียวกันสองที่ / ห้องใช้ร่วมได้ไม่นับชน', () => {
+  const s = mini();
+  s.assignments.push(
+    { id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], roomId: 'r2', blocks: '2' },
+    { id: 'a2', teacherId: 't2', subjectId: 's1', groupIds: ['g2'], roomId: 'r2', blocks: '2' },
+    { id: 'a3', teacherId: 't1', subjectId: 's1', groupIds: ['g2'], roomId: 'r1', blocks: '2' },
+  );
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 1 }, { assignmentId: 'a2', blockIndex: 0, day: 0, start: 1 });
+  assert.strictEqual(TT.findConflicts(s).list.length, 0, 'ห้องใช้ร่วมได้ ไม่ชน');
+  s.placements.push({ assignmentId: 'a3', blockIndex: 0, day: 0, start: 2 });
+  const c = TT.findConflicts(s);
+  assert.ok(c.list.some((x) => x.message.includes('ครู ครู ก')), 'ครู ก ชน');
+  assert.ok(c.list.some((x) => x.message.includes('กลุ่ม 2')), 'กลุ่ม 2 ชน');
+  const chk = TT.checkPlacement(s, s.assignments[2], 0, 1, 1);
+  assert.strictEqual(chk.ok, true);
+});
+
+test('เวลาไม่ว่างของครู', () => {
+  const s = mini();
+  s.teachers[0].unavailable = ['0|1'];
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], roomId: null, blocks: '2' });
+  const r = TT.checkPlacement(s, s.assignments[0], 0, 0, 1);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.reasons[0], /ไม่ว่าง/);
+});
+
+test('sanitize ลบคาบที่คร่อมพัก และคาบของภาระงานที่ถูกลบ', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '2' });
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 3 }, { assignmentId: 'gone', blockIndex: 0, day: 0, start: 1 });
+  assert.strictEqual(TT.sanitizePlacements(s), 2);
+});
+
+test('สรุปตารางสอนครูจากข้อมูลตัวอย่างตรงกับ PDF (ท13 ป8 น16 ช28)', () => {
+  const s = sampleState(TT);
+  const t = s.teachers[0];
+  const sum = TT.teacherSummary(s, t.id);
+  assert.deepStrictEqual(sum.totals, { t: 13, p: 8, n: 16, h: 28 });
+  assert.strictEqual(sum.scheduled, 28);
+  assert.strictEqual(sum.subjects.find((x) => x.code === '20000-1301').h, 9);
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+});
+
+test('จัดอัตโนมัติ: วางครบ ไม่ชน ไม่ขยับคาบเดิม และ Block Course ข้ามพักได้', () => {
+  const s = sampleState(TT);
+  const before = JSON.stringify(s.placements);
+  const res = TT.autoSchedule(s, { seed: 1, timeLimit: 2000 });
+  assert.strictEqual(res.complete, true);
+  s.placements.push(...res.placements);
+  assert.ok(JSON.stringify(s.placements).startsWith(before.slice(0, -1)));
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  assert.strictEqual(TT.allBlocks(s).filter((b) => !b.placement).length, 0);
+  const bc = s.assignments.find((a) => a.blockCourse);
+  const pl = s.placements.find((p) => p.assignmentId === bc.id);
+  assert.notStrictEqual(pl.day, 4, 'ครูช่างยนต์ไม่ว่างวันศุกร์คาบ 1-3 → Block Course 7 คาบลงวันศุกร์ไม่ได้');
+});
+
+test('จัดอัตโนมัติ: เมื่อเวลาไม่พอ วางเท่าที่ได้และรายงานที่เหลือ', () => {
+  const s = mini();
+  s.settings.days = ['จันทร์'];
+  s.settings.columns = s.settings.columns.slice(0, 3); // เสาธง + 2 คาบ
+  for (let i = 0; i < 3; i++) s.assignments.push({ id: 'a' + i, teacherId: 't1', subjectId: null, title: 'x', groupIds: ['g1'], blocks: '1' });
+  const res = TT.autoSchedule(s, { seed: 3, timeLimit: 500 });
+  assert.strictEqual(res.placements.length, 2);
+  assert.strictEqual(res.unplaced.length, 1);
+  assert.strictEqual(res.complete, false);
+});
+
+test('อ่านรายชื่อกลุ่มเรียนที่คัดลอกจากระบบวิทยาลัย', () => {
+  const text = [
+    'ปวช.3/1\t(ปวช.67) ช่างยนต์\t672010101\tปวช.3 ช่างยนต์67\tเครื่องกลและยานยนต์\t2 \tครู ก  ทดสอบ\t',
+    '\tปวส.2/2\t(ปวส.67) เทคนิคอุตสาหกรรม\t683011102\tส.2เทคอุตฯม.6\tอุตสาหกรรมการผลิต\t17 \tครู ข  ทดสอบ',
+    '692010401\tปวช1.ไฟฟ้า 69',
+  ].join('\n');
+  const rows = TT.parseGroupRows(text);
+  assert.strictEqual(rows.length, 3);
+  assert.deepStrictEqual(rows[0], { code: '672010101', name: 'ปวช.3 ช่างยนต์67', level: 'ปวช.3/1', major: 'ช่างยนต์', size: 2, advisor: 'ครู ก  ทดสอบ' });
+  assert.strictEqual(rows[1].level, 'ปวส.2/2');
+  assert.strictEqual(rows[1].major, 'เทคนิคอุตสาหกรรม');
+  assert.strictEqual(rows[1].size, 17);
+  assert.strictEqual(rows[2].name, 'ปวช1.ไฟฟ้า 69');
+});

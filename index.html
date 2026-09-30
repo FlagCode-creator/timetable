@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>จัดตารางสอน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header no-print">
+    <div class="brand">📅 โปรแกรมจัดตารางสอน</div>
+    <nav id="tabs"></nav>
+    <button class="btn small" id="hdr-export" title="ดาวน์โหลดไฟล์ข้อมูลทั้งหมดเก็บไว้">บันทึกไฟล์สำรอง</button>
+  </header>
+
+  <main id="main"></main>
+
+  <dialog id="dlg-paste" class="no-print">
+    <h3 class="dlg-title"></h3>
+    <pre class="dlg-hint hint"></pre>
+    <textarea rows="12" placeholder="วางข้อมูลที่นี่ (Ctrl+V)"></textarea>
+    <div class="btns end"><button class="btn dlg-cancel">ยกเลิก</button><button class="btn primary dlg-ok">นำเข้า</button></div>
+  </dialog>
+
+  <dialog id="dlg-groups" class="no-print">
+    <h3>เลือกกลุ่มเรียน</h3>
+    <p class="hint">เลือกได้หลายกลุ่ม ถ้าเรียน<b>รวมกันในเวลาเดียวกัน</b> (ชั่วโมงสอนของครูนับครั้งเดียว)</p>
+    <input type="search" placeholder="ค้นหารหัส/ชื่อกลุ่ม/ระดับชั้น...">
+    <div class="glist"></div>
+    <div class="btns end"><button class="btn dlg-cancel">ยกเลิก</button><button class="btn primary dlg-ok">ตกลง</button></div>
+  </dialog>
+
+  <div id="toast" class="no-print"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/sample.js"></script>
+  <script src="js/grid.js"></script>
+  <script src="js/print.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
