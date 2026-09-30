@@ -407,7 +407,7 @@
         { k: 'major', label: 'สาขาวิชา', w: 10 },
         { k: 'duty', label: 'หน้าที่พิเศษ', w: 10 },
       ],
-      pasteHint: 'คอลัมน์: ชื่อ-สกุล | วุฒิการศึกษา | แผนกวิชา | สาขาวิชา | หน้าที่พิเศษ\nชื่อครูควรสะกดตรงกับช่อง "ครูที่ปรึกษา" ของกลุ่มเรียน เพื่อให้สร้าง Home Room ได้อัตโนมัติ',
+      pasteHint: 'คอลัมน์: ชื่อ-สกุล | วุฒิการศึกษา | แผนกวิชา (ถ้ายังไม่มี ระบบสร้างให้) | สาขาวิชา | หน้าที่พิเศษ\nชื่อครูควรสะกดตรงกับช่อง "ครูที่ปรึกษา" ของกลุ่มเรียน เพื่อให้สร้าง Home Room ได้อัตโนมัติ',
     },
     subjects: {
       title: 'รายวิชา', prefix: 's', key: 'code',
@@ -531,7 +531,8 @@
       '<span class="spacer"></span><button class="btn" id="dpaste">วางจาก Excel</button><button class="btn primary" id="dadd">+ เพิ่ม' + cfg.title + '</button></div>' +
       '<div class="table-wrap"><table class="data"><thead><tr>' +
       cfg.fields.map((f) => '<th>' + esc(f.label) + '</th>').join('') +
-      (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th>ใช้ใน<br>ภาระงาน</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>';
+      (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th>ใช้ใน<br>ภาระงาน</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
+      '<datalist id="dept-list"></datalist>';
 
     $('#dfilter', el).oninput = (e) => { ui.dataFilter = e.target.value; fillDataBody(); };
     $('#dadd', el).onclick = () => {
@@ -558,6 +559,11 @@
               : state.teachers.some((t) => t.departmentId === id && t.id === a.teacherId)).length;
   }
 
+  function fillDeptList() {
+    const dl = $('#dept-list');
+    if (dl) dl.innerHTML = state.departments.filter((d) => norm(d.name)).map((d) => '<option value="' + esc(d.name) + '"></option>').join('');
+  }
+
   function fillDataBody() {
     const kind = ui.dataTab;
     const cfg = ENT[kind];
@@ -568,7 +574,8 @@
     const body = $('#dbody');
     body.innerHTML = rows.map((it) =>
       '<tr data-id="' + esc(it.id) + '">' + cfg.fields.map((f) => {
-        if (f.type === 'dept') return '<td><select data-f="' + f.k + '" aria-label="' + esc(f.label) + '">' + options(state.departments, it[f.k], (d) => d.name, '-') + '</select></td>';
+        // พิมพ์ชื่อแผนกใหม่ได้เลย (สร้างให้อัตโนมัติ) หรือเลือกจากรายการที่มีอยู่
+        if (f.type === 'dept') return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="พิมพ์หรือเลือก" value="' + esc(deptName(it[f.k])) + '" style="width:' + (f.w || 8) + 'em"></td>';
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
         return '<td><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
@@ -576,11 +583,24 @@
       '<td class="c muted">' + (usageCount(kind, it.id) || '') + '</td>' +
       '<td><button class="btn icon danger" data-del aria-label="ลบ">' + ICON.x + '</button></td></tr>').join('') ||
       '<tr><td colspan="9" class="empty-row">ยังไม่มีข้อมูล กด "+ เพิ่ม" หรือ "วางจาก Excel"</td></tr>';
+    fillDeptList();
 
     $$('tr[data-id]', body).forEach((tr) => {
       const item = state[kind].find((x) => x.id === tr.dataset.id);
       $$('[data-f]', tr).forEach((inp) => (inp.onchange = () => {
         const f = cfg.fields.find((x) => x.k === inp.dataset.f);
+        if (f.type === 'dept') {
+          const before = state.departments.length;
+          item[f.k] = norm(inp.value) ? findOrCreate('departments', inp.value).id : '';
+          save();
+          if (state.departments.length > before) {
+            toast('เพิ่มแผนกวิชา "' + norm(inp.value) + '" แล้ว');
+            fillDeptList();
+            const count = $('[data-sub=departments] .count');
+            if (count) count.textContent = state.departments.length;
+          }
+          return;
+        }
         item[f.k] = f.type === 'bool' ? inp.checked : f.type === 'num' ? (inp.value === '' ? '' : Number(inp.value) || 0) : inp.value.trim();
         if (kind === 'subjects') $('.hrs', tr).textContent = TT.subjectHours(item);
         save();
