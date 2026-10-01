@@ -222,6 +222,37 @@
     return '';
   }
 
+  /**
+   * ชั้นปีของกลุ่ม เช่น "ปวช.1" "ปวส.2"
+   * ดูจากช่องระดับชั้น → ชื่อกลุ่ม (ปวช.2…, ปวช1…, ส.2…) → รหัสกลุ่ม 9 หลัก (ปีเข้า + ระดับ เทียบกับปีการศึกษาในข้อมูลสถานศึกษา)
+   */
+  function groupGrade(state, g) {
+    if (!g) return '';
+    const fromText = (t) => {
+      const m = String(t || '').match(/(ปวช|ปวส)\.?\s*(\d)/);
+      if (m) return m[1] + '.' + m[2];
+      const s2 = String(t || '').trim().match(/^ส\.?\s*(\d)/);
+      return s2 ? 'ปวส.' + s2[1] : '';
+    };
+    const t = fromText(g.level) || fromText(g.name);
+    if (t) return t;
+    const c = String(g.code || '').trim();
+    const year = Number((state && state.settings && state.settings.year) || 0) % 100;
+    if (/^\d{9}$/.test(c) && year && (c[2] === '2' || c[2] === '3')) {
+      const max = c[2] === '2' ? 3 : 2;
+      const n = year - Number(c.slice(0, 2)) + 1;
+      if (n >= 1 && n <= max) return (c[2] === '2' ? 'ปวช.' : 'ปวส.') + n;
+    }
+    return '';
+  }
+
+  /** ลำดับชั้นปีสำหรับเรียง: ปวช.1 ปวช.2 ปวช.3 ปวส.1 ปวส.2 แล้วค่อยกลุ่มที่ไม่ทราบ */
+  const GRADE_ORDER = ['ปวช.1', 'ปวช.2', 'ปวช.3', 'ปวส.1', 'ปวส.2'];
+  function gradeRank(grade) {
+    const i = GRADE_ORDER.indexOf(grade);
+    return i < 0 ? 99 : i;
+  }
+
   function weeksForGroup(state, g) {
     const lw = state.settings.levelWeeks || {};
     return lw[groupLevel(g)] || state.settings.weeks;
@@ -1245,7 +1276,7 @@
         const t = name ? teachers.get(name) : null;
         if (!name) res.noAdvisor++;
         else if (!t) res.notFound++;
-        else if (used.has(t.id)) res.duplicate++;
+        else if (used.has(t.id)) res.duplicate++; // Home Room เวลาเดียวกัน ครู 1 คนสอนได้ 1 กลุ่ม
         else {
           a.teacherId = t.id;
           used.add(t.id);
@@ -1257,6 +1288,43 @@
     }
     state.placements = state.placements.filter((p) => !removedIds.has(p.assignmentId));
     return res;
+  }
+
+  /**
+   * ให้ Home Room (กิจกรรมประจำของกลุ่ม) ตรงกับ "ครูที่ปรึกษา" ในข้อมูลกลุ่มเรียนเสมอ
+   * - กลุ่มที่ยังไม่มี Home Room (เพิ่มกลุ่มทีหลัง) → สร้างให้
+   * - ชื่อครูที่ปรึกษาตรงกับรายชื่อครู → เป็นผู้สอน Home Room
+   * - ชื่อไม่พบในรายชื่อครู → Home Room ยังไม่มีครู · ไม่มีชื่อแต่ Home Room มีครู → ใส่ชื่อให้ข้อมูลกลุ่ม
+   */
+  function syncAdvisors(state) {
+    let changed = 0;
+    for (const r of state.settings.recurring || []) {
+      if (r.scope === 'teacher') continue;
+      const mine = state.assignments.filter((a) => a.recurringId === r.id);
+      if (!mine.length) continue; // ยังไม่ได้สร้าง
+      const have = new Set(mine.map((a) => (a.groupIds || [])[0]));
+      if (state.groups.some((g) => !have.has(g.id))) { applyRecurring(state, r.id); changed++; }
+      const list = state.assignments.filter((x) => x.recurringId === r.id);
+      const groupOf = (a) => state.groups.find((x) => x.id === (a.groupIds || [])[0]);
+      const wantOf = (a) => { const g = groupOf(a); const t = g && normName(g.advisor) ? findTeacherByName(state, g.advisor) : null; return t ? t.id : ''; };
+      // Home Room เวลาเดียวกันทุกกลุ่ม: ครู 1 คนได้ 1 กลุ่ม — กลุ่มที่ตรงอยู่แล้วได้ก่อน
+      const used = new Set(list.filter((a) => a.teacherId && a.teacherId === wantOf(a)).map((a) => a.teacherId));
+      for (const a of list) {
+        const g = groupOf(a);
+        if (!g) continue;
+        const name = normName(g.advisor);
+        if (name) {
+          let want = wantOf(a);
+          if (want && want !== a.teacherId && used.has(want)) want = '';
+          if (want) used.add(want);
+          if (a.teacherId !== want) { a.teacherId = want; changed++; }
+        } else if (a.teacherId) {
+          const t = state.teachers.find((x) => x.id === a.teacherId);
+          if (t) { g.advisor = t.name; changed++; } else { a.teacherId = ''; changed++; }
+        }
+      }
+    }
+    return changed;
   }
 
   /** หาครูจากชื่อ (ไม่สนช่องว่าง/จุด) */
@@ -1507,6 +1575,10 @@
     cellKey,
     checkPlacement,
     findTeacherByName,
+    groupGrade,
+    gradeRank,
+    GRADE_ORDER,
+    syncAdvisors,
     setAdvisor,
     parseSubjectRows,
     addSubjects,

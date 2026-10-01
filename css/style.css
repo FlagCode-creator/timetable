@@ -349,6 +349,9 @@ dialog.ask.warn .ask-list li::before { background: var(--warn); }
 .pool-group.lib { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 4px; }
 .lib-item { background: var(--panel) !important; border-style: dashed !important; }
 .lib-item .dot-c { background: var(--line); }
+#dbody tr.alt td { background: #F7F6F2; }
+#dbody tr.grade-row td { background: var(--accent-soft); color: var(--accent); font-size: 14px; padding: 8px 12px; border-top: 2px solid var(--accent-line, #C9D3F3); }
+#dbody tr.grade-row .muted { font-size: 12px; font-weight: 400; margin-left: 6px; }
 .bad-box .bad-h { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 13px; }
 .bad-box > .bad-i { display: block; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.7); color: var(--ink); }
 .bad-box .bad-i small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }

@@ -118,6 +118,7 @@ test('Home Room: ครูที่ปรึกษา 1 คนได้ 1 กล
   const hr = s.assignments.filter((a) => a.recurringId === 'rec_homeroom');
   assert.strictEqual(hr.find((a) => a.groupIds[0] === 'g1').teacherId, 't1');
   assert.strictEqual(hr.find((a) => a.groupIds[0] === 'g2').teacherId, '');
+  s.groups[1].advisor = '';
   assert.ok(s.placements.every((p) => p.day === 2 && p.start === 1 && p.locked));
   // กรอกครูเองแล้วสร้างซ้ำ: ไม่ทับครูที่ใส่ไว้ และไม่สร้างซ้ำ
   hr.find((a) => a.groupIds[0] === 'g2').teacherId = 't2';
@@ -495,4 +496,27 @@ test('เปลี่ยนครูที่ปรึกษาหลังล�
   assert.strictEqual(hr('g2').teacherId, '');
   assert.strictEqual(s.groups[1].advisor, '');
   assert.strictEqual(TT.findTeacherByName(s, ' ครู  ก ').id, 't1');
+});
+
+test('Home Room ตรงกับครูที่ปรึกษาในข้อมูลกลุ่มเรียนเสมอ (ใส่ชื่อทีหลัง / เพิ่มกลุ่มทีหลัง)', () => {
+  const s = mini();
+  TT.applyRecurring(s, 'rec_homeroom'); // สร้างก่อนใส่ชื่อครูที่ปรึกษา
+  const hr = (g) => s.assignments.find((a) => a.recurringId === 'rec_homeroom' && a.groupIds[0] === g);
+  assert.strictEqual(hr('g1').teacherId, '');
+  s.groups[0].advisor = 'ครู ข';           // วางรายชื่อกลุ่มพร้อมครูที่ปรึกษาทีหลัง
+  s.groups.push({ id: 'g9', code: '9', name: 'กลุ่มใหม่', advisor: 'ครู ก', unavailable: [] });
+  TT.syncAdvisors(s);
+  assert.strictEqual(hr('g1').teacherId, 't2');
+  assert.ok(hr('g9'), 'กลุ่มที่เพิ่มทีหลังได้ Home Room');
+  assert.strictEqual(hr('g9').teacherId, 't1');
+  assert.ok(s.placements.some((p) => p.assignmentId === hr('g9').id && p.locked));
+  // ครู ก เป็นที่ปรึกษา 2 กลุ่ม: Home Room เวลาเดียวกัน → กลุ่มหลังเว้นว่าง (ไม่ชนกัน)
+  s.groups[1].advisor = 'ครู ก';
+  TT.syncAdvisors(s);
+  assert.strictEqual(hr('g2').teacherId, '');
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  s.groups[0].advisor = 'ไม่มีชื่อนี้';
+  TT.syncAdvisors(s);
+  assert.strictEqual(hr('g1').teacherId, '');
+  assert.strictEqual(TT.syncAdvisors(s), 0, 'ตรงกันแล้วไม่เปลี่ยนซ้ำ');
 });
