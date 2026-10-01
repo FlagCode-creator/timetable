@@ -917,6 +917,7 @@
       return;
     }
     let list = state.assignments.filter((a) => (none ? !a.teacherId : a.teacherId === t.id));
+    const unassigned = state.assignments.filter((a) => !a.teacherId).length;
     if (none) {
       const gname = (a) => (idx.groups.get(a.groupIds[0]) || {}).name || '';
       list = list.slice().sort((x, y) => gname(x).localeCompare(gname(y), 'th') || (x.recurringId ? 1 : 0) - (y.recurringId ? 1 : 0));
@@ -949,7 +950,9 @@
 
     el.innerHTML = head +
       '<section class="card"><div class="card-head"><div><h2>รายวิชาที่สอน</h2><p>พิมพ์รหัสหรือชื่อวิชาในช่องแรก · เรียนรวมหลายกลุ่มในคาบเดียวกันให้เลือกหลายกลุ่ม · สอนแยกเวลาให้เพิ่มเป็นคนละแถว</p></div>' +
-      '<div class="btns tight"><button class="btn" id="apaste">วางจาก Excel</button>' + (none ? '' : '<button class="btn primary" id="aadd">+ เพิ่มรายวิชาที่สอน</button>') + '</div></div>' +
+      '<div class="btns tight"><button class="btn" id="apaste">วางจาก Excel</button>' + (none ? ''
+        : (unassigned ? '<button class="btn" id="apick">เลือกจากแผนการเรียน <span class="badge warn">' + unassigned + '</span></button>' : '') +
+          '<button class="btn primary" id="aadd">+ เพิ่มรายวิชาที่สอน</button>') + '</div></div>' +
       '<div class="table-wrap flat"><table class="data assign"><thead><tr>' + (none ? '<th>ครู</th>' : '') +
       '<th>วิชา / กิจกรรม</th><th>กลุ่มเรียน</th><th>ห้อง/สถานที่</th><th>ชม./สัปดาห์</th><th>ต้องสอน<br>ทั้งเทอม</th><th>การจัด</th><th>รายละเอียดการจัด</th><th>จัดแล้ว</th><th></th></tr></thead><tbody>' +
       (list.map((a) => assignRow(a, idx, placedCount, none)).join('') ||
@@ -964,6 +967,8 @@
     if (e1) e1.onclick = () => { ui.dataTab = 'teachers'; ui.dataFilter = t.name; go('data'); };
     const e2 = $('#w-sched', el);
     if (e2) e2.onclick = () => { ui.view = 'teacher'; ui.viewId = t.id; ui.listFilter = ''; go('schedule'); };
+    const pk = $('#apick', el);
+    if (pk) pk.onclick = () => pickWork(t);
     const add = $('#aadd', el);
     if (add) add.onclick = () => {
       state.assignments.push({ id: TT.uid('a'), teacherId: t.id, subjectId: null, title: '', groupIds: [], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' });
@@ -976,6 +981,58 @@
       'คอลัมน์: ชื่อครู | รหัสวิชา (หรือชื่อกิจกรรม) | รหัสกลุ่มเรียน (เรียนรวมหลายกลุ่มคั่นด้วย , ) | ห้อง | รูปแบบคาบ (เว้นว่างได้) | Block Course (ใส่ "ใช่") | ทั้งเทอม (ใส่ "ใช่")',
       importAssignments);
     bindAssignRows(el);
+  }
+
+  /** เลือกรายวิชาที่ยังไม่มีครู (จากแผนการเรียน) มอบให้ครูคนนี้ ทีละหลายวิชา */
+  function pickWork(t) {
+    const dlg = $('#dlg-pick');
+    const idx = TT.indexState(state);
+    const pool = state.assignments.filter((a) => !a.teacherId);
+    const chosen = new Set();
+    const current = state.assignments.filter((a) => a.teacherId === t.id).reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
+    const gname = (a) => a.groupIds.map((g) => (idx.groups.get(g) || {}).name || '?').join(' + ') || 'ไม่มีกลุ่มเรียน';
+    const label = (a) => {
+      const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      return sj ? sj.code + ' ' + sj.name : a.title || 'กิจกรรม';
+    };
+    const search = $('input[type=search]', dlg);
+    const box = $('.pick-list', dlg);
+    const sum = $('.pick-sum', dlg);
+    const updateSum = () => {
+      const add = pool.filter((a) => chosen.has(a.id)).reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
+      sum.innerHTML = 'เลือก ' + chosen.size + ' วิชา (' + add + ' ชม./สัปดาห์) · ' + esc(t.name) + ' จะสอน <b>' + (current + add) + ' ชม./สัปดาห์</b> (ตอนนี้ ' + current + ')';
+    };
+    const fill = () => {
+      const q = norm(search.value).toLowerCase();
+      const byGroup = new Map();
+      for (const a of pool) {
+        if (q && !(label(a) + ' ' + gname(a)).toLowerCase().includes(q) && !chosen.has(a.id)) continue;
+        const k = gname(a);
+        if (!byGroup.has(k)) byGroup.set(k, []);
+        byGroup.get(k).push(a);
+      }
+      box.innerHTML = [...byGroup.entries()].sort((x, y) => x[0].localeCompare(y[0], 'th')).map(([g, as]) =>
+        '<div class="pick-group"><div class="eg-name">' + esc(g) + '</div>' + as.map((a) =>
+          '<label class="chk pick-row"><input type="checkbox" value="' + esc(a.id) + '"' + (chosen.has(a.id) ? ' checked' : '') + '>' +
+          '<i class="dot-c ' + P.colorClass(state, a) + '"></i><span class="grow">' + esc(label(a)) + (a.recurringId ? ' <small>(กิจกรรมประจำ)</small>' : '') + '</span>' +
+          '<small>' + TT.assignmentHours(a, idx.subjects) + ' ชม./สัปดาห์</small></label>').join('') + '</div>').join('') ||
+        '<p class="hint">ไม่พบรายวิชาที่ยังไม่มีครู' + (q ? ' ตามคำค้น' : ' (นำเข้าแผนการเรียนได้ที่ปุ่ม "นำเข้าแผนการเรียน")') + '</p>';
+      $$('input', box).forEach((cb) => (cb.onchange = () => { cb.checked ? chosen.add(cb.value) : chosen.delete(cb.value); updateSum(); }));
+    };
+    $('.dlg-title', dlg).textContent = 'เลือกรายวิชาให้ ' + t.name;
+    search.value = '';
+    search.oninput = fill;
+    fill();
+    updateSum();
+    $('.dlg-ok', dlg).onclick = () => {
+      if (!chosen.size) { toast('ยังไม่ได้เลือกวิชา', true); return; }
+      pool.forEach((a) => { if (chosen.has(a.id)) a.teacherId = t.id; });
+      dlg.close();
+      commit();
+      toast('มอบ ' + chosen.size + ' วิชาให้ ' + t.name + ' แล้ว');
+    };
+    dlg.showModal();
+    search.focus();
   }
 
   function totalsRow(list, idx, showTeacher) {
