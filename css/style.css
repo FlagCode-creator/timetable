@@ -310,6 +310,8 @@ dialog::backdrop { background: rgba(29, 28, 26, .35); }
 dialog h3 { margin: 0 0 6px; font-size: 18px; }
 dialog textarea, dialog input[type=search] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 dialog textarea { font-size: 13px; white-space: pre; }
+dialog .switch-row { margin-top: 8px; }
+dialog .switch-row select { height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; margin: 4px 2px 0; }
 .glist { max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
 .glist label { min-height: 36px; }
 .glist small { color: var(--muted); }
@@ -469,6 +471,14 @@ table.tt-grid td.blk.ghost { cursor: default; }
 .switch-row input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); }
 .switch-row span { display: flex; flex-direction: column; gap: 2px; }
 .switch-row small { color: var(--muted); font-size: 12px; }
+
+.lw-rows { display: flex; flex-direction: column; gap: 8px; }
+.lw-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 14px; flex-wrap: wrap; }
+.lw-row b { width: 3.2em; }
+.lw-row input { width: 4.5em; height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; }
+.lw-row small { color: var(--muted); margin-left: auto; }
+.term-week.ended table.tt-grid { opacity: .45; }
+.term-week.ended .tw-head span { color: var(--warn); }
 
 /* ---------- ตรวจสอบข้อมูล ---------- */
 .count-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; font-size: 11px; font-weight: 700; display: none; align-items: center; justify-content: center; }

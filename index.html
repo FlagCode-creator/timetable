@@ -43,6 +43,20 @@
     <div class="btns end"><button class="btn dlg-cancel">ยกเลิก</button><button class="btn primary dlg-ok">นำเข้า</button></div>
   </dialog>
 
+  <dialog id="dlg-plan" class="no-print">
+    <h3>นำเข้าแผนการเรียน (รายวิชาของกลุ่มเรียน)</h3>
+    <pre class="hint">คอลัมน์: รหัสกลุ่ม | รหัสวิชา | ชื่อวิชา | ท | ป | น | ชื่อกลุ่มเรียน (ไม่บังคับ)
+ระบบจะสร้างรายวิชาและกลุ่มเรียนที่ยังไม่มี แล้วสร้างรายการ "วิชา × กลุ่ม" ไว้ที่ "ยังไม่มีครู" ให้เลือกครูทีละแถว
+นำเข้าซ้ำได้ รายการที่มีอยู่แล้วจะไม่ถูกสร้างซ้ำ</pre>
+    <textarea rows="10" placeholder="วางข้อมูลจาก Excel ที่นี่ (Ctrl+V)"></textarea>
+    <label class="switch-row"><input type="checkbox" id="plan-merge" checked>
+      <span><b>เรียนรวม: กลุ่มรหัสต่างกันแค่หลักสุดท้าย</b><small>เช่น 693190501 (สายตรง) กับ 693190502 (ม.6) วิชาเดียวกันเป็นรายการเดียว ครู 1 คนสอนพร้อมกัน</small></span></label>
+    <label class="switch-row"><input type="checkbox" id="plan-act" checked>
+      <span><b>วิชากิจกรรม ลงตารางให้อัตโนมัติ (ล็อก)</b><small>วิชาที่ชื่อขึ้นต้นด้วย "กิจกรรม" เช่น กิจกรรมองค์การวิชาชีพ
+        <span class="inline-f">วัน <select id="plan-day"></select> เริ่มคาบ <select id="plan-start"></select></span></small></span></label>
+    <div class="btns end"><button class="btn dlg-cancel">ยกเลิก</button><button class="btn primary dlg-ok">นำเข้า</button></div>
+  </dialog>
+
   <dialog id="dlg-groups" class="no-print">
     <h3>เลือกกลุ่มเรียน</h3>
     <p class="hint">เลือกได้หลายกลุ่ม ถ้าเรียน<b>รวมกันในเวลาเดียวกัน</b> (ชั่วโมงสอนของครูนับครั้งเดียว)</p>

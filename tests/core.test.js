@@ -332,3 +332,59 @@ test('ตารางทั้งเทอม: แบ่งหัว/ท้า�
   assert.strictEqual(res.ok, false);
   assert.match(res.reason, /ครบชั่วโมงทั้งเทอม/);
 });
+
+test('นำเข้าแผนการเรียนแผนกคอม 2/2569: เรียนรวมสายตรง/ม.6 และวิชากิจกรรมลงพุธ 09:00–11:00', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const text = fs.readFileSync(path.join(__dirname, '..', 'data', 'แผนการเรียน-แผนกคอม-2-2569.tsv'), 'utf8');
+  const s = TT.emptyState();
+  s.settings.closedDays = ['ศุกร์'];
+  const res = TT.importStudyPlan(s, text, { mergeSections: true, activity: { day: 'พุธ', start: 2, len: 2 } });
+  assert.strictEqual(res.rows, 54);
+  assert.strictEqual(res.groupsAdded, 6);
+  assert.strictEqual(s.groups.find((g) => g.code === '693190502').name, 'ส.1แอนิเมชัน69ม.6');
+  assert.ok(s.subjects.some((x) => x.code === '20000*2002'), 'คงรหัส 20000*2002 ตามเอกสาร');
+  // 12 + 11 + 7 + (8 วิชาเรียนรวมสายตรง/ม.6 + 1 ปรับพื้นฐาน) + 7 = 46 รายการ
+  assert.strictEqual(res.assignmentsAdded, 46);
+  assert.strictEqual(res.merged, 8);
+  const game = s.subjects.find((x) => x.code === '21901-2009');
+  assert.strictEqual(s.assignments.filter((a) => a.subjectId === game.id).length, 2, 'ปวช.1 69 กับ ปวช.3 67 ไม่รวมกัน (คนละรุ่น)');
+  assert.ok(s.assignments.every((a) => !a.teacherId), 'ยังไม่มีครู รอเลือก');
+  assert.strictEqual(res.activities, 5);
+  assert.ok(s.placements.every((p) => p.day === 2 && p.start === 2 && p.locked));
+  assert.strictEqual(TT.findConflicts(s).list.length, 0);
+  // โครงงาน 0-6-2 = 6 ชม. แบ่ง 3+3
+  const proj = s.subjects.find((x) => x.code === '21901-2023');
+  assert.deepStrictEqual(TT.assignmentBlocks(s.assignments.find((a) => a.subjectId === proj.id), new Map(s.subjects.map((x) => [x.id, x]))), [3, 3]);
+  // นำเข้าซ้ำไม่สร้างซ้ำ
+  const again = TT.importStudyPlan(s, text, { mergeSections: true, activity: { day: 'พุธ', start: 2, len: 2 } });
+  assert.strictEqual(again.assignmentsAdded, 0);
+  assert.strictEqual(again.existing, 46);
+  assert.strictEqual(TT.checkData(s).filter((i) => i.type === 'group-overload').length, 0, 'ชั่วโมงทุกกลุ่มลงได้');
+});
+
+test('จำนวนสัปดาห์ตามระดับ: ปวช. 18 / ปวส. 15 (4 ชม. × 15 = 60 ชม.)', () => {
+  const s = TT.normalizeState(TT.emptyState());
+  s.groups.push(
+    { id: 'v', code: '692190101', name: 'ปวช1.สารสนเทศ 69', unavailable: [] },
+    { id: 's', code: '693190501', name: 'ส.1แอนิเมชัน69สายตรง', unavailable: [] },
+    { id: 'x', code: 'X1', name: 'กลุ่มอื่น', level: 'ปวส.2/1', unavailable: [] },
+  );
+  s.teachers.push({ id: 't', name: 'ครู', unavailable: [] });
+  s.subjects.push({ id: 'w', code: '31905-2007', name: 'การสร้างแอนิเมชัน', t: 1, p: 3, n: 2 });
+  assert.deepStrictEqual(s.groups.map(TT.groupLevel), ['ปวช.', 'ปวส.', 'ปวส.']);
+  const a = { id: 'a', teacherId: 't', subjectId: 'w', groupIds: ['s'], blocks: '', plan: 'term', hoursPerDay: 4 };
+  s.assignments.push(a);
+  assert.strictEqual(TT.weeksFor(s, a), 15);
+  assert.strictEqual(TT.termTotal(s, a), 60);
+  assert.strictEqual(TT.checkSession(s, a, 16, 0, 1, 4).ok, false, 'ปวส. สัปดาห์ที่ 16 จบภาคเรียนแล้ว');
+  TT.fillTerm(s, 'a', 1);
+  assert.ok(s.sessions.every((x) => x.week <= 15));
+  assert.strictEqual(TT.termStatus(s, a).placed, 60);
+  a.groupIds = ['v'];
+  assert.strictEqual(TT.termTotal(s, a), 72, 'ปวช. 4 × 18');
+  // ตั้งค่า ปวส. เป็น 18 ได้
+  s.settings.levelWeeks['ปวส.'] = 18;
+  a.groupIds = ['s'];
+  assert.strictEqual(TT.termTotal(s, a), 72);
+});

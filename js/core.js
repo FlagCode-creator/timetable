@@ -40,6 +40,7 @@
         blocked: [],
         recurring: [defaultRecurring()],
         weeks: 18,
+        levelWeeks: { 'ปวช.': 18, 'ปวส.': 15 },
         checkRooms: false,
       },
       departments: [],
@@ -65,7 +66,10 @@
     for (const k of ['closedDays', 'blocked', 'recurring']) {
       if (!Array.isArray(out.settings[k])) out.settings[k] = base.settings[k];
     }
-    out.settings.weeks = Math.max(1, Math.min(40, Number(out.settings.weeks) || 18));
+    out.settings.levelWeeks = Object.assign({}, base.settings.levelWeeks, out.settings.levelWeeks || {});
+    for (const k of Object.keys(out.settings.levelWeeks)) out.settings.levelWeeks[k] = Math.max(1, Math.min(40, Number(out.settings.levelWeeks[k]) || 18));
+    // จำนวนตารางในโหมดทั้งเทอม = จำนวนสัปดาห์มากที่สุด
+    out.settings.weeks = Math.max(...Object.values(out.settings.levelWeeks));
     for (const k of ['departments', 'teachers', 'subjects', 'groups', 'rooms', 'assignments', 'placements', 'sessions']) {
       if (!Array.isArray(out[k])) out[k] = [];
     }
@@ -179,11 +183,35 @@
     return Math.max(1, Math.min(13, Number(a.hoursPerDay) || 4));
   }
 
-  /** ชั่วโมงทั้งเทอม = ชม./สัปดาห์ × จำนวนสัปดาห์ (หรือค่าที่กำหนดเอง) */
+  /**
+   * ระดับของกลุ่มเรียน: ดูจากช่องระดับชั้น (ปวช./ปวส.) ถ้าไม่มี ใช้หลักที่ 3 ของรหัสกลุ่ม (2 = ปวช., 3 = ปวส.)
+   * เช่น 692190101 = ปวช., 693190501 = ปวส.
+   */
+  function groupLevel(g) {
+    if (!g) return '';
+    if (/ปวส/.test(g.level || '')) return 'ปวส.';
+    if (/ปวช/.test(g.level || '')) return 'ปวช.';
+    const c = String(g.code || '').trim();
+    if (/^\d{9}$/.test(c)) return c[2] === '3' ? 'ปวส.' : c[2] === '2' ? 'ปวช.' : '';
+    return '';
+  }
+
+  function weeksForGroup(state, g) {
+    const lw = state.settings.levelWeeks || {};
+    return lw[groupLevel(g)] || state.settings.weeks;
+  }
+
+  /** จำนวนสัปดาห์ของรายการ: ตามระดับของกลุ่มเรียน (เรียนรวมต่างระดับใช้ค่ามากสุด) */
+  function weeksFor(state, a) {
+    const gs = (a.groupIds || []).map((id) => state.groups.find((g) => g.id === id)).filter(Boolean);
+    return gs.length ? Math.max(...gs.map((g) => weeksForGroup(state, g))) : state.settings.weeks;
+  }
+
+  /** ชั่วโมงทั้งเทอม = ชม./สัปดาห์ × จำนวนสัปดาห์ของระดับ (ปวช. 18, ปวส. 15) หรือค่าที่กำหนดเอง */
   function termTotal(state, a, subjectsById) {
     if (Number(a.totalHours) > 0) return Number(a.totalHours);
     const subjects = subjectsById || new Map(state.subjects.map((x) => [x.id, x]));
-    return assignmentHours(a, subjects) * state.settings.weeks;
+    return assignmentHours(a, subjects) * weeksFor(state, a);
   }
 
   function placementKey(assignmentId, blockIndex) {
@@ -226,7 +254,7 @@
     });
     state.sessions = (state.sessions || []).filter((x) => {
       const a = idx.assignments.get(x.assignmentId);
-      return isTerm(a) && x.week >= 1 && x.week <= state.settings.weeks &&
+      return isTerm(a) && x.week >= 1 && x.week <= Math.min(state.settings.weeks, weeksFor(state, a)) &&
         x.day >= 0 && x.day < state.settings.days.length && canSpan(pers, x.start, x.len, true);
     });
     return before - state.placements.length;
@@ -705,6 +733,8 @@
     const idx = (cache && cache.idx) || indexState(state);
     const pers = (cache && cache.pers) || periods(state.settings);
     if (!canSpan(pers, start, len, true)) return { ok: false, span: false, reasons: ['เกินคาบสุดท้ายของวัน'] };
+    const wf = weeksFor(state, a);
+    if (week > wf) return { ok: false, span: false, reasons: ['ภาคเรียนของกลุ่มนี้มี ' + wf + ' สัปดาห์ (สัปดาห์ที่ ' + week + ' จบภาคเรียนแล้ว)'] };
     const weekly = (cache && cache.weekly) || buildOccupancy(state, idx);
     const sOcc = (cache && cache.sOcc) || buildSessionOccupancy(state, idx, skipId);
     const blocked = (cache && cache.blocked) || blockedCells(state.settings);
@@ -795,7 +825,7 @@
     if (!isTerm(a)) return { added: 0, remaining: 0 };
     const closed = new Set(state.settings.closedDays || []);
     let added = 0;
-    for (let w = Math.max(1, fromWeek || 1); w <= state.settings.weeks; w++) {
+    for (let w = Math.max(1, fromWeek || 1); w <= Math.min(state.settings.weeks, weeksFor(state, a)); w++) {
       for (let d = 0; d < state.settings.days.length; d++) {
         if (closed.has(state.settings.days[d])) continue;
         if (state.sessions.some((x) => x.assignmentId === a.id && x.week === w && x.day === d)) continue;
@@ -983,6 +1013,80 @@
     state.placements = state.placements.filter((p) => !removed.has(p.assignmentId));
     state.groups = state.groups.filter((g) => g !== drop);
     return true;
+  }
+
+  /* ------------------------------ นำเข้าแผนการเรียน ------------------------------ */
+
+  /** วิชากิจกรรม (กิจกรรมองค์การวิชาชีพ, กิจกรรมในสถานประกอบการ ฯลฯ) */
+  function isActivitySubject(sj) {
+    return !!sj && /^\s*กิจกรรม/.test(sj.name || '') && !(Number(sj.t) > 0);
+  }
+
+  /** กลุ่มรหัสต่างกันแค่หลักสุดท้าย = รุ่น/สาขาเดียวกันคนละห้อง เช่น 693190501 (สายตรง) กับ 693190502 (ม.6) */
+  function sectionKey(code) {
+    const c = String(code || '').trim();
+    return c.length > 1 ? c.slice(0, -1) : c;
+  }
+
+  /**
+   * นำเข้าแผนการเรียน: แต่ละแถว = รหัสกลุ่ม | รหัสวิชา | ชื่อวิชา | ท | ป | น | ชื่อกลุ่มเรียน (ไม่บังคับ)
+   * - สร้างรายวิชา/กลุ่มเรียนที่ยังไม่มี
+   * - สร้างรายการภาระงาน (ยังไม่มีครู) ต่อวิชาต่อกลุ่ม ถ้า opts.mergeSections ให้กลุ่มรหัสต่างกันแค่หลักสุดท้ายเรียนรวม
+   * - วิชากิจกรรม วางล็อกไว้ที่ opts.activity = { day, start, len } (เช่น พุธ คาบ 2–3)
+   */
+  function importStudyPlan(state, text, opts) {
+    opts = Object.assign({ mergeSections: true, activity: null }, opts || {});
+    const res = { rows: 0, subjectsAdded: 0, groupsAdded: 0, assignmentsAdded: 0, merged: 0, existing: 0, activities: 0, problems: [] };
+    const bySubject = new Map();
+    for (const cells of splitRows(text)) {
+      let [gcode, scode, name, t, p, n, gname] = cells.map((c) => String(c == null ? '' : c).trim());
+      if (!gcode || /รหัส/.test(gcode + scode)) continue;
+      if (/^\d+\s*-\s*\d+\s*-\s*\d+$/.test(t || '')) { gname = p; [t, p, n] = t.split('-').map((x) => x.trim()); }
+      if (!scode) { res.problems.push('แถวที่ไม่มีรหัสวิชา (กลุ่ม ' + gcode + ')'); continue; }
+      res.rows++;
+      let sj = state.subjects.find((x) => String(x.code).trim() === scode);
+      if (!sj) {
+        sj = { id: uid('s'), code: scode, name: name || scode, t: Number(t) || 0, p: Number(p) || 0, n: Number(n) || 0 };
+        state.subjects.push(sj);
+        res.subjectsAdded++;
+      } else if (!sj.name && name) sj.name = name;
+      let g = state.groups.find((x) => String(x.code).trim() === gcode);
+      if (!g) {
+        g = { id: uid('g'), code: gcode, name: gname || gcode, level: '', major: '', size: '', advisor: '', unavailable: [] };
+        state.groups.push(g);
+        res.groupsAdded++;
+      } else if ((!g.name || g.name === g.code) && gname) g.name = gname;
+      if (!bySubject.has(sj.id)) bySubject.set(sj.id, { sj, groups: [] });
+      const list = bySubject.get(sj.id).groups;
+      if (!list.includes(g)) list.push(g);
+    }
+    const days = state.settings.days;
+    for (const { sj, groups } of bySubject.values()) {
+      const parts = new Map();
+      for (const g of groups) {
+        const k = opts.mergeSections ? sectionKey(g.code) : g.id;
+        if (!parts.has(k)) parts.set(k, []);
+        parts.get(k).push(g);
+      }
+      for (const gs of parts.values()) {
+        const ids = gs.map((g) => g.id);
+        const already = state.assignments.find((a) => a.subjectId === sj.id && ids.some((id) => (a.groupIds || []).includes(id)));
+        if (already) { res.existing++; continue; }
+        const a = { id: uid('a'), teacherId: '', subjectId: sj.id, title: '', groupIds: ids, roomId: null, blocks: '', blockCourse: false, plan: 'weekly' };
+        state.assignments.push(a);
+        res.assignmentsAdded++;
+        if (ids.length > 1) res.merged++;
+        if (opts.activity && isActivitySubject(sj)) {
+          const d = days.indexOf(opts.activity.day);
+          const len = assignmentHours(a, new Map([[sj.id, sj]]));
+          if (d >= 0 && canSpan(periods(state.settings), Number(opts.activity.start), len, true)) {
+            state.placements.push({ assignmentId: a.id, blockIndex: 0, day: d, start: Number(opts.activity.start), locked: true });
+            res.activities++;
+          } else res.problems.push('วาง ' + sj.code + ' ที่วัน' + opts.activity.day + ' คาบ ' + opts.activity.start + ' ไม่ได้');
+        }
+      }
+    }
+    return res;
   }
 
   /* ------------------------------ กิจกรรมประจำ ------------------------------ */
@@ -1178,10 +1282,16 @@
   const TT = {
     ALL_DAYS,
     defaultRecurring,
+    isActivitySubject,
+    sectionKey,
+    importStudyPlan,
     looseName,
     checkData,
     mergeGroups,
     isTerm,
+    groupLevel,
+    weeksForGroup,
+    weeksFor,
     hoursPerDay,
     termTotal,
     termStatus,
