@@ -1017,7 +1017,8 @@
           return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="' + esc(guess ? guess + ' ?' : 'พิมพ์หรือเลือก') + '" value="' + esc(deptName(it[f.k])) + '" style="min-width:' + (f.w || 8) + 'em"></td>';
         }
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
-        return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
+        const ph = kind === 'groups' && f.k === 'level' && !norm(it.level) ? TT.groupGrade(state, it) : '';
+        return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + ' style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
       '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + usageCell(kind, it) + '</td>' +
@@ -1027,18 +1028,15 @@
       // เรียงตามชั้นปี ปวช.1 → ปวส.2 แล้วตามแผนกวิชา · แต่ละชั้นมีหัวข้อ · แถวสลับสี
       const cols = cfg.fields.length + 2;
       const sorted = sortGroups(rows);
+      // แสดงครบทุกชั้นปี (ชั้นที่ยังไม่มีกลุ่มก็มีหัวข้อ) แต่ละหัวข้อมีปุ่มเพิ่มกลุ่มในชั้นนั้น
+      const grades = q ? [...new Set(sorted.map((x) => x.grade))] : [...TT.GRADE_ORDER, ...(sorted.some((x) => !x.grade) ? [''] : [])];
       html = '';
-      let cur = null;
-      let i = 0;
-      for (const x of sorted) {
-        if (x.grade !== cur) {
-          cur = x.grade;
-          i = 0;
-          const n = sorted.filter((y) => y.grade === cur).length;
-          html += '<tr class="grade-row"><td colspan="' + cols + '"><b>' + esc(cur || 'ไม่ทราบชั้นปี') + '</b> <span class="muted">' + n + ' กลุ่ม · ' +
-            esc([...new Set(sorted.filter((y) => y.grade === cur).map((y) => y.dept))].join(' · ')) + '</span></td></tr>';
-        }
-        html += rowHtml(x.g, i++ % 2 === 1);
+      for (const grade of grades) {
+        const inGrade = sorted.filter((y) => y.grade === grade);
+        html += '<tr class="grade-row"><td colspan="' + cols + '"><div class="gr-flex"><span><b>' + esc(grade || 'ไม่ทราบชั้นปี') + '</b> <span class="muted">' +
+          (inGrade.length ? inGrade.length + ' กลุ่ม · ' + esc([...new Set(inGrade.map((y) => y.dept))].join(' · ')) : 'ยังไม่มีกลุ่ม') + '</span></span>' +
+          (grade ? '<button class="btn small" data-addgrade="' + esc(grade) + '">+ เพิ่มกลุ่ม ' + esc(grade) + '</button>' : '') + '</div></td></tr>';
+        inGrade.forEach((x, i) => (html += rowHtml(x.g, i % 2 === 1)));
       }
     } else {
       html = rows.map((it, i) => rowHtml(it, i % 2 === 1)).join('');
@@ -1047,6 +1045,22 @@
     fillDeptList();
 
     $$('[data-go-check]', body).forEach((b) => (b.onclick = () => go('check')));
+    $$('[data-addgrade]', body).forEach((b) => (b.onclick = () => {
+      // กลุ่มใหม่ในชั้นนั้น: ใส่ระดับชั้นให้ แล้วพิมพ์รหัส/ชื่อกลุ่มต่อได้เลย
+      const g = { id: TT.uid('g'), level: b.dataset.addgrade, code: '', name: '', departmentId: '', major: '', size: '', advisor: '', unavailable: [] };
+      state.groups.push(g);
+      save();
+      fillDataBody();
+      const row = $('#dbody tr[data-id="' + g.id + '"]');
+      if (row) {
+        row.classList.add('new-row');
+        row.scrollIntoView({ block: 'center' });
+        const inp = $('[data-f="code"]', row);
+        if (inp) inp.focus();
+      }
+      const count = $('[data-sub=groups] .count');
+      if (count) count.textContent = state.groups.length;
+    }));
     $$('[data-give]', body).forEach((b) => (b.onclick = () => editAssignment({ id: TT.uid('a'), teacherId: '', subjectId: b.dataset.give, title: '', groupIds: [], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' }, true)));
     $$('[data-usage]', body).forEach((b) => (b.onclick = () => {
       const id = b.dataset.usage;
