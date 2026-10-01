@@ -736,17 +736,24 @@
   function usageCell(kind, it) {
     const n = usageCount(kind, it.id);
     if (!n) return '<span class="muted" title="ยังไม่มีวิชาที่ใช้ข้อมูลนี้">–</span>';
-    const unit = kind === 'subjects' ? ' รายการ' : ' วิชา';
+    const unit = kind === 'subjects' ? ' กลุ่ม' : ' วิชา';
     return '<button class="linkish" data-usage="' + esc(it.id) + '" title="นับให้อัตโนมัติ คลิกเพื่อไปดู">' + n + unit + ' →</button>';
   }
 
+  // วิชาเดียวกันแต่คนละกลุ่มเรียน นับเป็น 1 วิชา (หน้ารายวิชานับจำนวนกลุ่มที่เรียน)
   function usageCount(kind, id) {
-    return state.assignments.filter((a) =>
+    const mine = state.assignments.filter((a) =>
       kind === 'teachers' ? a.teacherId === id
         : kind === 'subjects' ? a.subjectId === id
           : kind === 'groups' ? a.groupIds.includes(id)
             : kind === 'rooms' ? a.roomId === id
-              : state.teachers.some((t) => t.departmentId === id && t.id === a.teacherId)).length;
+              : state.teachers.some((t) => t.departmentId === id && t.id === a.teacherId));
+    if (kind === 'subjects') return new Set(mine.flatMap((a) => a.groupIds)).size;
+    return new Set(mine.map(subjKey)).size;
+  }
+
+  function subjKey(a) {
+    return a.subjectId ? 's:' + a.subjectId : 'x:' + (a.title || 'กิจกรรม');
   }
 
   function fillDeptList() {
@@ -767,9 +774,9 @@
     body.innerHTML = rows.map((it) =>
       '<tr data-id="' + esc(it.id) + '"' + (dupIds.has(it.id) ? ' class="dup-row-t" title="กลุ่มเรียนนี้ซ้ำกับกลุ่มอื่น ดูที่ ตรวจสอบ"' : '') + '>' + cfg.fields.map((f) => {
         // พิมพ์ชื่อแผนกใหม่ได้เลย (สร้างให้อัตโนมัติ) หรือเลือกจากรายการที่มีอยู่
-        if (f.type === 'dept') return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="พิมพ์หรือเลือก" value="' + esc(deptName(it[f.k])) + '" style="width:' + (f.w || 8) + 'em"></td>';
+        if (f.type === 'dept') return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="พิมพ์หรือเลือก" value="' + esc(deptName(it[f.k])) + '" style="min-width:' + (f.w || 8) + 'em"></td>';
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
-        return '<td><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
+        return '<td><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
       '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + usageCell(kind, it) + '</td>' +
@@ -990,6 +997,13 @@
     $$('.tcard', el).forEach((c) => drop(c, () => c.dataset.tid));
   }
 
+  // รวมรายการของวิชาเดียวกัน (คนละกลุ่มเรียน) ไว้ด้วยกัน เรียงตามลำดับที่พบครั้งแรก
+  function subjGroups(list) {
+    const m = new Map();
+    list.forEach((a) => { const k = subjKey(a); if (!m.has(k)) m.set(k, []); m.get(k).push(a); });
+    return [...m.values()];
+  }
+
   function subjLabel(a, idx) {
     const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
     return sj ? sj.code + ' ' + sj.name : a.title || 'กิจกรรม';
@@ -1048,16 +1062,23 @@
       const on = ui.assignTeacher === t.id;
       return '<article class="tcard' + (on ? ' on' : '') + '" data-tid="' + esc(t.id) + '">' +
         '<button class="tc-head" data-pick-t="' + esc(t.id) + '" aria-pressed="' + on + '">' +
-        '<span class="tc-name"><b>' + esc(t.name) + '</b><small>' + esc(dept.get(t.departmentId) || '') + '</small></span>' +
+        '<span class="tc-name"><b>' + esc(t.name) + '</b><small>' + [dept.get(t.departmentId), mine.length ? subjGroups(mine).length + ' วิชา' : ''].filter(Boolean).map(esc).join(' · ') + '</small></span>' +
         '<span class="tc-hours"><b>' + week + '</b> ชม./สัปดาห์<small>' + term + ' ชม./เทอม</small></span></button>' +
         (on ? '<div class="tc-hint">' + ICON.check + 'เลือกอยู่ — คลิกวิชาทางซ้ายเพื่อมอบให้ครูคนนี้</div>' : '') +
-        '<div class="tc-list">' + (mine.map((a) =>
-          '<div class="tchip ' + P.colorClass(state, a) + '" draggable="true" data-aid="' + esc(a.id) + '">' +
-          '<button class="tchip-main" data-edit="' + esc(a.id) + '" title="คลิกเพื่อแก้ไข">' +
-          '<span class="grow"><b>' + esc(subjLabel(a, idx)) + '</b><small>' + esc(groupsLabel(a, idx)) + (TT.isTerm(a) ? ' · ทั้งเทอม' : '') + '</small></span>' +
-          '<span class="tchip-h">' + TT.assignmentHours(a, idx.subjects) + '</span></button>' +
-          (a.recurringId ? '' : '<button class="btn icon ghost" data-unassign="' + esc(a.id) + '" aria-label="ยกเลิกการมอบ" title="ย้ายกลับไปที่ ยังไม่มีครู">' + ICON.x + '</button>') +
-          '</div>').join('') || '<p class="hint">ยังไม่มีวิชา</p>') + '</div>' +
+        '<div class="tc-list">' + (subjGroups(mine).map((list) => {
+          const chip = (a, label) =>
+            '<div class="tchip ' + P.colorClass(state, a) + '" draggable="true" data-aid="' + esc(a.id) + '">' +
+            '<button class="tchip-main" data-edit="' + esc(a.id) + '" title="คลิกเพื่อแก้ไข">' +
+            '<span class="grow">' + label + '</span>' +
+            '<span class="tchip-h">' + TT.assignmentHours(a, idx.subjects) + '</span></button>' +
+            (a.recurringId ? '' : '<button class="btn icon ghost" data-unassign="' + esc(a.id) + '" aria-label="ยกเลิกการมอบ" title="ย้ายกลับไปที่ ยังไม่มีครู">' + ICON.x + '</button>') +
+            '</div>';
+          const term = (a) => (TT.isTerm(a) ? ' · ทั้งเทอม' : '');
+          if (list.length === 1) return chip(list[0], '<b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + esc(groupsLabel(list[0], idx)) + term(list[0]) + '</small>');
+          // วิชาเดียวกันหลายกลุ่ม: เขียนชื่อวิชาครั้งเดียว แล้วแยกกลุ่มไว้ข้างใต้
+          return '<div class="tsubj"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม</small></div>' +
+            list.map((a) => chip(a, '<small class="g">' + esc(groupsLabel(a, idx)) + term(a) + '</small>')).join('') + '</div>';
+        }).join('') || '<p class="hint">ยังไม่มีวิชา</p>') + '</div>' +
         '<button class="btn small ghost tc-add" data-new="' + esc(t.id) + '">+ เพิ่มวิชาที่ไม่มีในแผน</button>' +
         '</article>';
     }).join('') || '<div class="card empty-state">ยังไม่มีครู กด "+ เพิ่มครู" ด้านบน</div>';

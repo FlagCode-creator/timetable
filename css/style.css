@@ -147,6 +147,8 @@ table.data input:not([type=checkbox]), table.data select {
 }
 table.data input:not([type=checkbox]):hover, table.data select:hover { border-color: var(--line); }
 table.data input:focus, table.data select:focus { border-color: var(--accent); outline: none; background: #fff; }
+#dbody input:not([type=checkbox]) { width: 100%; }
+#dbody td:nth-last-child(2) { white-space: nowrap; width: 1%; }
 table.data select.need { color: var(--warn); border-color: var(--warn-soft); background: #FFFBF5; }
 table.data .c { text-align: center; }
 table.data td.ok { color: var(--ok); font-weight: 600; text-align: center; }
@@ -579,6 +581,12 @@ table.data tr.dup-row-t { background: #FFF6F4; }
 .tchip-main small { font-size: 11px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tchip-h { font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(255,255,255,.7); }
 .tchip .btn.icon { min-height: 28px; width: 28px; }
+.tsubj { display: flex; flex-direction: column; gap: 3px; }
+.tsubj-h { display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 0; min-width: 0; }
+.tsubj-h b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsubj-h small { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.tsubj .tchip { margin-left: 12px; }
+.tchip-main small.g { font-size: 12px; opacity: 1; }
 .tc-add { align-self: flex-start; margin: 2px 4px 4px; }
 
 /* ---------- หน้าต่างแก้ไขรายวิชา ---------- */
