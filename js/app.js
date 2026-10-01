@@ -1634,13 +1634,35 @@
     return '<div class="sched-head"><div><h1>' + (ui.view === 'teacher'
       ? '<button class="title-link" id="to-work" title="ดู/เพิ่มรายวิชาที่สอน">' + esc(ent.name) + '<span class="arrow">รายวิชาที่สอน →</span></button>'
       : esc(VIEWS[ui.view].name(ent))) + '</h1><p>' + meta + '</p></div>' +
-      (ui.cal === 'term' ? '' : '<div class="sched-actions"><button class="btn" id="clear-one">ล้างตารางนี้</button>' +
-        '<button class="btn primary" id="auto">' + ICON.check + 'จัดอัตโนมัติ</button></div>') + '</div>';
+      (ui.cal === 'term'
+        ? '<div class="sched-actions"><button class="btn" id="term-clear">ล้างตารางทั้งเทอมของ' + esc(VIEWS[ui.view].label) + 'นี้</button>' +
+          '<button class="btn danger" id="term-clear-all">ล้างตารางทั้งเทอมทั้งหมด</button></div>'
+        : '<div class="sched-actions"><button class="btn" id="clear-one">ล้างตารางนี้</button>' +
+          '<button class="btn primary" id="auto">' + ICON.check + 'จัดอัตโนมัติ</button></div>') + '</div>';
   }
 
   /* ---------- ตารางรายสัปดาห์ ---------- */
 
   /** แถบเครื่องมือ: แสดงตลอด ใช้ได้เมื่อเลือกคาบ */
+  /** เครื่องมือของกิจกรรมประจำ (Home Room / PLC) ตอนเลือกก้อนในตาราง */
+  function recurringTools(a) {
+    const r = state.settings.recurring.find((x) => x.id === a.recurringId);
+    if (!r) return '';
+    const teacherScope = r.scope === 'teacher';
+    const g = !teacherScope && state.groups.find((x) => x.id === (a.groupIds || [])[0]);
+    const dayChoices = teacherScope ? state.settings.days.slice() : (openDays().includes(r.day) ? openDays() : [r.day, ...openDays()]);
+    const pers = TT.periods(state.settings);
+    return '<div class="tool-group rec-tools"><span class="tg-label">' + ICON.lock + '<b>' + esc(r.title) + '</b></span>' +
+      (g ? '<label class="tl">ครูที่ปรึกษา ' + esc(g.name || g.code) + '<select id="t-adv">' +
+        '<option value="">- ยังไม่มีครู -</option>' + state.teachers.map((t) => '<option value="' + esc(t.id) + '"' + (t.id === a.teacherId ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') +
+        '</select></label>' : '') +
+      '</div><div class="tool-group rec-tools"><span class="tg-label">ทุก' + (teacherScope ? 'คน' : 'กลุ่ม') + '</span>' +
+      '<select id="t-rday" aria-label="วัน">' + simpleOptions(dayChoices.map((d) => [d, 'วัน' + d]), r.day) + '</select>' +
+      '<select id="t-rstart" aria-label="เริ่มคาบ">' + simpleOptions(pers.map((p) => [p.no, 'คาบ ' + p.no + ' · ' + p.start]), r.start) + '</select>' +
+      '<select id="t-rlen" aria-label="จำนวนคาบ">' + simpleOptions([1, 2, 3, 4].map((n) => [n, n + ' คาบ']), r.len) + '</select></div>' +
+      '<span class="spacer"></span><button class="btn small ghost" id="t-cancel">ยกเลิกการเลือก</button>';
+  }
+
   function weekToolbar(ent) {
     const idx = TT.indexState(state);
     let sel = null;
@@ -1657,7 +1679,7 @@
     const canUnav = ui.view !== 'room';
     let hint;
     if (!sel) hint = 'คลิกการ์ด "ยังไม่ได้จัด" ทางขวา แล้วคลิกช่องสีเขียวในตาราง · หรือคลิกคาบในตารางเพื่อย้าย/แก้ไข · หรือกด "จัดอัตโนมัติ"';
-    else if (sel.a.recurringId) hint = 'กิจกรรมประจำ (ล็อก) · เปลี่ยนวัน/เวลา หรือครูที่ปรึกษา ได้ที่ <button class="linkish" data-gorules>ตั้งค่า → เงื่อนไข</button>';
+    else if (sel.a.recurringId) hint = 'กิจกรรมประจำ (ล็อก) · เปลี่ยนครูที่ปรึกษา หรือวัน/เวลาของทุก' + (TT.isTeacherActivity(state, sel.a) ? 'คน' : 'กลุ่ม') + ' ได้จากแถบด้านบน';
     else {
       const sj = sel.a.subjectId ? idx.subjects.get(sel.a.subjectId) : null;
       hint = 'เลือก <b>' + esc(sj ? sj.code : sel.a.title) + '</b> · ' + sel.len + ' คาบ' +
@@ -1670,7 +1692,7 @@
       '<div class="tool-group">' + (canUnav
         ? '<div class="seg" role="group" aria-label="โหมด"><button data-mode="place" aria-pressed="' + (ui.mode === 'place') + '" class="' + (ui.mode === 'place' ? 'active' : '') + '">วางคาบ</button>' +
           '<button data-mode="unav" aria-pressed="' + (ui.mode === 'unav') + '" class="' + (ui.mode === 'unav' ? 'active' : '') + '">เวลาไม่ว่าง</button></div>'
-        : '') + '</div>' + (!can ? '' :
+        : '') + '</div>' + (sel && sel.a.recurringId ? recurringTools(sel.a) : '') + (!can ? '' :
       '<div class="tool-group"><span class="tg-label">' + ICON.scissors + '</span>' +
       '<select id="t-split" aria-label="แบ่งเวลา"' + dis(can && sel.len > 1) + '>' + split + '</select>' +
       '<button class="btn small" id="t-merge"' + dis(can && sel.next) + '>รวมก้อนถัดไป</button></div>' +
@@ -1887,6 +1909,39 @@
     const { assignmentId, blockIndex } = parseKey(ui.selected);
     const cur = TT.findPlacement(state, assignmentId, blockIndex);
     on('#t-cancel', () => { ui.selected = null; render(); });
+    const selA = state.assignments.find((x) => x.id === assignmentId);
+    const advSel = $('#t-adv', el);
+    if (advSel && selA) advSel.onchange = () => {
+      const g = state.groups.find((x) => x.id === selA.groupIds[0]) || {};
+      const r = TT.setAdvisor(state, g.id, advSel.value);
+      commit();
+      const t = state.teachers.find((x) => x.id === advSel.value);
+      toast(t ? 'ครูที่ปรึกษา ' + (g.name || g.code) + ' → ' + t.name + (r.others.length ? ' · เป็นที่ปรึกษา ' + r.others.map((x) => x.name || x.code).join(', ') + ' ด้วย' : '')
+        : (g.name || g.code) + ' ยังไม่มีครูที่ปรึกษา', !!r.others.length);
+    };
+    ['day', 'start', 'len'].forEach((k) => {
+      const inp = $('#t-r' + k, el);
+      const rec = selA && state.settings.recurring.find((x) => x.id === selA.recurringId);
+      if (!inp || !rec) return;
+      inp.onchange = async () => {
+        // ลองย้ายในสำเนาก่อน ถ้าจะชนกับวิชาที่จัดไว้ ถามก่อน
+        const trial = JSON.parse(JSON.stringify(state));
+        const tr = trial.settings.recurring.find((x) => x.id === rec.id);
+        tr[k] = k === 'day' ? inp.value : Number(inp.value);
+        const res = TT.applyRecurring(trial, rec.id);
+        if (res.error) { toast(res.error, true); render(); return; }
+        const mine = new Set(trial.assignments.filter((x) => x.recurringId === rec.id).map((x) => x.id));
+        const clashes = TT.findConflicts(trial).list.filter((c) => c.keys.some((key) => mine.has(key.split('#')[0])));
+        const conf = clashes.length;
+        if (conf && !(await ask({ title: 'ย้าย ' + rec.title + ' แล้วจะชนกัน ' + conf + ' จุด', items: clashes.slice(0, 6).map((c) => c.message).concat(conf > 6 ? ['… อีก ' + (conf - 6) + ' จุด'] : []),
+          q: 'ย้ายต่อไหม? (วิชาที่ชนต้องย้ายออกเองภายหลัง)', ok: 'ย้ายต่อ', cancel: 'ไม่ย้าย' }))) { render(); return; }
+        rec[k] = tr[k];
+        TT.applyRecurring(state, rec.id);
+        commit();
+        toast('ย้าย ' + rec.title + ' ทุก' + (rec.scope === 'teacher' ? 'คน' : 'กลุ่ม') + ' ไปวัน' + rec.day + ' คาบ ' + rec.start + (rec.len > 1 ? '–' + (rec.start + rec.len - 1) : '') +
+          (conf ? ' · ชนกับวิชาที่จัดไว้ ' + conf + ' จุด (ดูที่รายการชนกัน)' : ''), !!conf);
+      };
+    });
     on('#t-lock', () => { cur.locked = !cur.locked; commit(); });
     on('#t-remove', () => { state.placements = state.placements.filter((p) => p !== cur); ui.selected = null; commit(); });
     on('#t-merge', () => {
@@ -2064,8 +2119,7 @@
     html += '</section>';
     const bad = ui.termSel && conflicts.byPlacement.get('S:' + ui.termSel);
     if (bad) html = badBox(bad) + html;
-    const clr = '<button class="btn small ghost" id="term-clear">ล้างตารางทั้งเทอมของ' + esc(VIEWS[ui.view].label) + 'นี้</button>';
-    return html + clr;
+    return html;
   }
 
   function highlightTerm(assignmentId, skipId) {
@@ -2196,7 +2250,21 @@
       if (!(await ask({ tone: 'danger', title: 'ล้างตารางทั้งเทอมของ "' + v.name(ent) + '"?', msg: 'วันที่วางไว้ทั้งหมดของทุกวิชาจะถูกนำออก', ok: 'ล้าง' }))) return;
       const ids = new Set(state.assignments.filter((a) => v.match(a, ent.id)).map((a) => a.id));
       state.sessions = state.sessions.filter((x) => !ids.has(x.assignmentId));
+      ui.termSel = null;
       commit();
+    };
+    const clrAll = $('#term-clear-all', el);
+    if (clrAll) clrAll.onclick = async () => {
+      const n = state.sessions.length;
+      if (!n) { toast('ยังไม่มีวันที่วางไว้ในตารางทั้งเทอม'); return; }
+      const subj = new Set(state.sessions.map((x) => x.assignmentId)).size;
+      if (!(await ask({ tone: 'danger', title: 'ล้างตารางทั้งเทอมทั้งหมด (ทุกครู ทุกกลุ่ม)?',
+        msg: 'วันที่วางไว้ ' + n + ' วัน ของ ' + subj + ' วิชาจะถูกนำออกทั้งหมด · ตารางรายสัปดาห์ไม่เปลี่ยน · ควรบันทึกไฟล์สำรองก่อน', ok: 'ล้างทั้งหมด' }))) return;
+      state.sessions = [];
+      ui.termSel = null;
+      ui.termPick = null;
+      commit();
+      toast('ล้างตารางทั้งเทอมแล้ว ' + n + ' วัน');
     };
     $$('[data-trs]', el).forEach((b) => (b.onclick = () => {
       const [dh, dt] = b.dataset.trs.split(',').map(Number);
