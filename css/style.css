@@ -668,7 +668,7 @@ div.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; co
 .page .logo { display: block; height: 56px; margin: 0 auto 2px; }
 .page table.subj th, .page table.subj td { border: 1px solid #000; padding: 1px 3px; text-align: center; height: 17px; }
 .page table.subj { font-size: 10.5px; border: 0; }
-.page table.subj td.code { width: 64px; }
+.page table.subj td.code { width: 64px; white-space: nowrap; letter-spacing: -.2px; }
 .page table.subj td.name { text-align: left; }
 .page table.subj td.r { text-align: right; font-weight: 700; }
 .page table.subj tr.total td { font-weight: 700; }
@@ -693,8 +693,14 @@ div.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; co
 .page.term-weeks table.tt-grid { margin-top: 2px; }
 .page.term-weeks table.tt-grid th, .page.term-weeks table.tt-grid td { height: 30px; }
 .page.term-weeks table.tt-grid tr.pno-row th, .page.term-weeks table.tt-grid thead th { height: auto; }
-.page table.tt-grid td.blk.w1 .c-line { display: none; }
-.page table.tt-grid td.blk.w1 .c-code { font-size: 9px; word-break: break-all; }
+/* ช่อง 1 คาบ (เช่น Home Room): ชื่อ + กลุ่มเรียนแบบตัดท้าย ".." ตามแบบฟอร์ม */
+.page table.tt-grid td.blk.w1 .c-code { font-size: 9.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.page table.tt-grid td.blk.w1 .c-line { display: block; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: '..'; }
+.page table.tt-grid td.blk.w1 .c-line + .c-line { display: none; }
+/* ช่องพัก (กิจกรรมหน้าเสาธง / พักกลางวัน) กว้างเท่าคาบเรียน และเวลาเขียนแนวนอน */
+.page table.tt-grid { table-layout: fixed; }
+.page table.tt-grid thead th.time.brk { width: auto; }
+.page table.tt-grid td.break { width: auto; }
 .page .sigs { display: grid; gap: 8px; margin-top: 14px; text-align: center; }
 .page .sigs.four { grid-template-columns: repeat(4, 1fr); }
 .page .sigs.three { grid-template-columns: repeat(3, 1fr); }

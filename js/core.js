@@ -21,8 +21,17 @@
     return cols;
   }
 
+  const HOMEROOM_NAME = 'กิจกรรมโฮมรูม (ชั่วโมงพบครูที่ปรึกษา)';
+
+  /** ชื่อเต็มของกิจกรรมประจำ (ใช้ในรายการวิชาของใบตารางสอน) */
+  function activityName(state, a) {
+    const rec = a.recurringId && (state.settings.recurring || []).find((r) => r.id === a.recurringId);
+    if (rec && rec.name) return rec.name;
+    return /^home\s*room$/i.test(String(a.title || '').trim()) ? HOMEROOM_NAME : '';
+  }
+
   function defaultRecurring() {
-    return { id: 'rec_homeroom', title: 'Home Room', day: 'พุธ', start: 1, len: 1 };
+    return { id: 'rec_homeroom', title: 'Home Room', name: HOMEROOM_NAME, day: 'พุธ', start: 1, len: 1 };
   }
 
   function emptyState() {
@@ -536,7 +545,7 @@
       if (!subj.has(key)) {
         subj.set(key, s
           ? { code: s.code, name: s.name, t: Number(s.t) || 0, p: Number(s.p) || 0, n: Number(s.n) || 0, h: 0, isSubject: true }
-          : { code: a.title || 'กิจกรรม', name: '', t: '', p: '', n: '', h: 0, isSubject: false });
+          : { code: a.title || 'กิจกรรม', name: activityName(state, a), t: '', p: '', n: '', h: 0, isSubject: false });
       }
       subj.get(key).h += assignmentHours(a, idx.subjects);
     }
