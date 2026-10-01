@@ -1227,12 +1227,21 @@
   }
 
   function groupsLabel(a, idx) {
+    if (TT.isTeacherActivity(state, a)) {
+      const r = state.settings.recurring.find((x) => x.id === a.recurringId);
+      const pers = TT.periods(state.settings);
+      const st = pers[r.start - 1];
+      const en = pers[r.start + (Number(r.len) || 1) - 2];
+      return 'ครูทุกคน · วัน' + r.day + (st && en ? ' ' + st.start + '–' + en.end : '');
+    }
     return a.groupIds.map((g) => (idx.groups.get(g) || {}).name || '?').join(' + ') || 'ยังไม่ได้เลือกกลุ่มเรียน';
   }
 
   function giveTo(a, teacherId) {
     const idx = TT.indexState(state);
-    a.teacherId = teacherId || '';
+    // Home Room: ผู้สอน = ครูที่ปรึกษาของกลุ่ม ให้ชื่อในข้อมูลกลุ่มตรงกันด้วย
+    if (a.recurringId && !TT.isTeacherActivity(state, a) && a.groupIds[0]) TT.setAdvisor(state, a.groupIds[0], teacherId || '');
+    else a.teacherId = teacherId || '';
     commit();
     toast(teacherId ? 'มอบ ' + subjLabel(a, idx) + ' ให้ ' + idx.teachers.get(teacherId).name : 'ย้าย ' + subjLabel(a, idx) + ' กลับไปที่ "ยังไม่มีครู"');
   }
@@ -1288,7 +1297,9 @@
             '<button class="tchip-main" data-edit="' + esc(a.id) + '" title="คลิกเพื่อแก้ไข">' +
             '<span class="grow">' + label + '</span>' +
             '<span class="tchip-h">' + TT.assignmentHours(a, idx.subjects) + '</span></button>' +
-            (a.recurringId ? '' : '<button class="btn icon ghost" data-unassign="' + esc(a.id) + '" aria-label="ยกเลิกการมอบ" title="ย้ายกลับไปที่ ยังไม่มีครู">' + ICON.x + '</button>') +
+            (a.recurringId
+              ? '<button class="btn icon ghost" data-unrec="' + esc(a.id) + '" aria-label="เอาออก" title="' + (TT.isTeacherActivity(state, a) ? 'เอาครูคนนี้ออกจาก ' + esc(a.title) : 'เอาครูคนนี้ออกจาก ' + esc(a.title) + ' ของกลุ่มนี้ (กลุ่มยังมี ' + esc(a.title) + ' แบบยังไม่มีครู)') + '">' + ICON.x + '</button>'
+              : '<button class="btn icon ghost" data-unassign="' + esc(a.id) + '" aria-label="ยกเลิกการมอบ" title="ย้ายกลับไปที่ ยังไม่มีครู">' + ICON.x + '</button>') +
             '</div>';
           const term = (a) => (TT.isTerm(a) ? ' · ทั้งเทอม' : '');
           if (list.length === 1) return chip(list[0], '<b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + esc(groupsLabel(list[0], idx)) + term(list[0]) + '</small>');
@@ -1302,6 +1313,26 @@
     $$('[data-pick-t]', box).forEach((b) => (b.onclick = () => { ui.assignTeacher = ui.assignTeacher === b.dataset.pickT ? '' : b.dataset.pickT; render(); }));
     $$('[data-edit]', box).forEach((b) => (b.onclick = () => editAssignment(state.assignments.find((a) => a.id === b.dataset.edit))));
     $$('[data-unassign]', box).forEach((b) => (b.onclick = () => giveTo(state.assignments.find((a) => a.id === b.dataset.unassign), '')));
+    $$('[data-unrec]', box).forEach((b) => (b.onclick = async () => {
+      const a = state.assignments.find((x) => x.id === b.dataset.unrec);
+      const r = a && state.settings.recurring.find((x) => x.id === a.recurringId);
+      if (!r) return;
+      const t = state.teachers.find((x) => x.id === a.teacherId) || {};
+      if (r.scope === 'teacher') {
+        if (!(await ask({ title: 'เอา ' + t.name + ' ออกจาก ' + r.title + '?', msg: 'ครูคนนี้จะไม่มี ' + r.title + ' ในตาราง (เอากลับได้ที่ ตั้งค่า → เงื่อนไข → การ์ด ' + r.title + ')', ok: 'เอาออก' }))) return;
+        r.exclude = [...new Set([...(r.exclude || []), t.id])];
+        TT.applyRecurring(state, r.id);
+        commit();
+        toast('เอา ' + t.name + ' ออกจาก ' + r.title + ' แล้ว');
+        return;
+      }
+      const g = state.groups.find((x) => x.id === a.groupIds[0]) || {};
+      if (!(await ask({ title: 'เอา ' + t.name + ' ออกจาก ' + r.title + ' ของ ' + (g.name || g.code) + '?',
+        msg: 'กลุ่มนี้ยังมี ' + r.title + ' ที่เดิม แต่ยังไม่มีครูที่ปรึกษา — เลือกครูใหม่ได้ทางซ้าย (ยังไม่มีครู) หรือที่ ตั้งค่า → เงื่อนไข', ok: 'เอาออก' }))) return;
+      TT.setAdvisor(state, g.id, '');
+      commit();
+      toast((g.name || g.code) + ' ยังไม่มีครูที่ปรึกษา · เลือกครูใหม่ได้');
+    }));
     $$('[data-new]', box).forEach((b) => (b.onclick = () => editAssignment({ id: TT.uid('a'), teacherId: b.dataset.new, subjectId: null, title: '', groupIds: [], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' }, true)));
     $$('.tchip[draggable]', box).forEach((c) => (c.ondragstart = (e) => e.dataTransfer.setData('text/plain', c.dataset.aid)));
   }
@@ -1312,6 +1343,8 @@
     const idx = TT.indexState(state);
     const draft = { ...a, groupIds: a.groupIds.slice() };
     const rec = !!a.recurringId;
+    const teacherAct = rec && TT.isTeacherActivity(state, a);
+    const hrRec = rec && !teacherAct; // Home Room: 1 รายการ = 1 กลุ่ม ผู้สอน = ครูที่ปรึกษา
     const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
     const hours = TT.assignmentHours(a, idx.subjects);
     const hi = hoursInfo(a, idx);
@@ -1320,8 +1353,14 @@
       '<div class="form-grid">' +
       '<label class="field span2">วิชา / กิจกรรม' + (rec ? '<input value="' + esc(a.title) + ' (กิจกรรมประจำ)" disabled>'
         : '<input id="e-subj" list="subj-list" placeholder="พิมพ์รหัสหรือชื่อวิชา" value="' + esc(sj ? sj.code + ' ' + sj.name : a.title) + '">') + '</label>' +
-      '<label class="field">ครูผู้สอน<select id="e-teacher">' + options(state.teachers, a.teacherId, (t) => t.name, '- ยังไม่มีครู -') + '</select></label>' +
-      '<div class="field">กลุ่มเรียน<button type="button" class="btn" id="e-groups"' + (rec ? ' disabled' : '') + '>' + esc(groupsLabel(draft, idx)) + '</button></div>' +
+      '<label class="field">' + (hrRec ? 'ครูที่ปรึกษา' : 'ครูผู้สอน') + '<select id="e-teacher"' + (teacherAct ? ' disabled' : '') + '>' + options(state.teachers, a.teacherId, (t) => t.name, '- ยังไม่มีครู -') + '</select></label>' +
+      (hrRec
+        ? '<label class="field">กลุ่มเรียน (ที่ปรึกษา)<select id="e-hrgroup">' + state.groups.map((g) => {
+            const other = state.assignments.find((x) => x.recurringId === a.recurringId && x.groupIds[0] === g.id && x.id !== a.id);
+            const who = other && other.teacherId ? (idx.teachers.get(other.teacherId) || {}).name : '';
+            return '<option value="' + esc(g.id) + '"' + (g.id === a.groupIds[0] ? ' selected' : '') + '>' + esc(g.name || g.code) + (g.id === a.groupIds[0] ? '' : who ? ' (ที่ปรึกษา: ' + esc(who) + ')' : ' (ยังไม่มีครู)') + '</option>';
+          }).join('') + '</select></label>'
+        : '<div class="field">กลุ่มเรียน<button type="button" class="btn" id="e-groups"' + (rec ? ' disabled' : '') + '>' + esc(groupsLabel(draft, idx)) + '</button></div>') +
       '<label class="field">ห้อง/สถานที่<select id="e-room">' + options(state.rooms, a.roomId, (r) => r.name, '-') + '</select></label>' +
       '<label class="field">ชม./สัปดาห์<input type="number" min="1" max="40" id="e-hours" value="' + hours + '"' + (rec ? ' disabled' : '') + '></label>' +
       (rec ? '' :
@@ -1345,6 +1384,25 @@
     if (gb) gb.onclick = () => pickGroups(draft, () => { gb.textContent = groupsLabel(draft, TT.indexState(state)); });
     $('#e-cancel', dlg).onclick = () => dlg.close();
     $('#e-save', dlg).onclick = () => {
+      if (hrRec) {
+        // เปลี่ยนกลุ่ม/ครูที่ปรึกษาของ Home Room: กลุ่มเดิมกลับไปเป็น "ยังไม่มีครู"
+        const oldG = a.groupIds[0];
+        const newG = $('#e-hrgroup', dlg).value;
+        const tId = $('#e-teacher', dlg).value;
+        const prev = state.assignments.find((x) => x.recurringId === a.recurringId && x.groupIds[0] === newG);
+        const replaced = newG !== oldG && prev && prev.teacherId && prev.teacherId !== tId ? (idx.teachers.get(prev.teacherId) || {}).name : '';
+        if (newG !== oldG) TT.setAdvisor(state, oldG, '');
+        const r = TT.setAdvisor(state, newG, tId);
+        const room = $('#e-room', dlg).value || null;
+        state.assignments.forEach((x) => { if (x.recurringId === a.recurringId && x.groupIds[0] === newG) x.roomId = room; });
+        dlg.close();
+        commit();
+        const g = state.groups.find((x) => x.id === newG) || {};
+        const t = state.teachers.find((x) => x.id === tId);
+        toast(a.title + ' ' + (g.name || g.code) + ' → ' + (t ? t.name : 'ยังไม่มีครู') + (replaced ? ' (แทน ' + replaced + ')' : '') +
+          (r.others.length ? ' · เป็นที่ปรึกษา ' + r.others.map((x) => x.name || x.code).join(', ') + ' ด้วย' : ''), !!(replaced || r.others.length));
+        return;
+      }
       if (!rec) {
         const text = norm($('#e-subj', dlg).value);
         const code = text.split(' ')[0];
@@ -1371,7 +1429,7 @@
         const tot = Math.round(Number($('#e-total', dlg).value) || 0);
         a.totalHours = tot > 0 ? tot : '';
       }
-      a.teacherId = $('#e-teacher', dlg).value;
+      if (!teacherAct) a.teacherId = $('#e-teacher', dlg).value;
       a.roomId = $('#e-room', dlg).value || null;
       if (isNew) state.assignments.push(a);
       dlg.close();
