@@ -64,6 +64,64 @@
     toast.t = setTimeout(() => (el.className = ''), 4000);
   }
 
+  const ASK_ICON = {
+    warn: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4.5M12 17.5v.01"/></svg>',
+    danger: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>',
+    info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
+  };
+
+  /**
+   * กล่องถาม/แจ้งเตือนแบบป๊อปอัป (แทน confirm/alert ของเบราว์เซอร์)
+   * ask({ tone: 'warn'|'danger'|'info', title, msg, items: [], q, ok, cancel }) → Promise<true|false>
+   * cancel: false = มีแค่ปุ่มตกลง (ใช้แจ้งเตือน)
+   */
+  function ask(o) {
+    const dlg = $('#dlg-ask');
+    const tone = o.tone || 'warn';
+    dlg.className = 'ask no-print ' + tone;
+    $('.ask-ic', dlg).innerHTML = ASK_ICON[tone] || ASK_ICON.info;
+    $('#ask-title').textContent = o.title || '';
+    const msg = $('.ask-msg', dlg);
+    msg.textContent = o.msg || '';
+    msg.hidden = !o.msg;
+    const list = $('.ask-list', dlg);
+    list.innerHTML = (o.items || []).map((t) => '<li>' + esc(t) + '</li>').join('');
+    list.hidden = !(o.items || []).length;
+    const q = $('.ask-q', dlg);
+    q.textContent = o.q || '';
+    q.hidden = !o.q;
+    const okB = $('.ask-ok', dlg);
+    const noB = $('.ask-cancel', dlg);
+    okB.textContent = o.ok || 'ตกลง';
+    okB.className = 'btn ask-ok ' + (tone === 'danger' ? 'solid-bad' : 'primary');
+    noB.textContent = o.cancel || 'ยกเลิก';
+    noB.hidden = o.cancel === false;
+    return new Promise((resolve) => {
+      const done = (v) => {
+        okB.onclick = noB.onclick = dlg.onclick = dlg.oncancel = null;
+        if (dlg.open) dlg.close();
+        resolve(v);
+      };
+      okB.onclick = () => done(true);
+      noB.onclick = () => done(false);
+      dlg.oncancel = (e) => { e.preventDefault(); done(false); };
+      dlg.onclick = (e) => { if (e.target === dlg) done(false); }; // คลิกนอกกล่อง = ยกเลิก
+      dlg.showModal();
+      (o.cancel === false || tone !== 'danger' ? okB : noB).focus();
+    });
+  }
+
+  function conflictAsk(reasons, verb) {
+    return ask({
+      tone: 'warn',
+      title: 'ช่วงเวลานี้ชนกัน',
+      items: reasons,
+      q: 'ต้องการ' + verb + 'ไว้ตรงนี้ทั้งที่ชนกันไหม?',
+      ok: verb + 'ต่อ',
+      cancel: 'ไม่' + verb,
+    });
+  }
+
   function download(name, text, type) {
     const blob = new Blob([text], { type: type || 'application/json' });
     const a = document.createElement('a');
@@ -224,8 +282,8 @@
     });
   }
 
-  function loadSample() {
-    if (!isEmpty() && !confirm('ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลตัวอย่าง ต้องการทำต่อไหม?')) return;
+  async function loadSample() {
+    if (!isEmpty() && !(await ask({ title: 'ใช้ข้อมูลตัวอย่าง?', msg: 'ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลตัวอย่าง', ok: 'แทนที่' }))) return;
     state = TT.normalizeState(window.TTSample.sampleState(TT));
     ui.viewId = '';
     ui.tab = 'home';
@@ -280,12 +338,12 @@
       (issues.length ? '<div class="issues">' + issues.map(card).join('') + '</div>'
         : '<div class="card empty-state ok-state">' + ICON.check + '<b>ไม่พบปัญหา</b><span>ไม่มีกลุ่มเรียนซ้ำ ไม่มีวิชาซ้ำ และไม่มีกลุ่มเรียนซ้อนเวลา</span></div>');
 
-    $$('[data-keep]', el).forEach((b) => (b.onclick = () => {
+    $$('[data-keep]', el).forEach((b) => (b.onclick = async () => {
       const i = issues[Number(b.dataset.issue)];
       const keep = b.dataset.keep;
       const others = i.groupIds.filter((g) => g !== keep);
       const names = others.map((g) => (idx.groups.get(g) || {}).name).join(', ');
-      if (!confirm('รวม "' + names + '" เข้ากับ "' + idx.groups.get(keep).name + '"?\nรายวิชาและตารางของกลุ่มที่รวมจะย้ายมาที่กลุ่มนี้ แล้วลบกลุ่มที่ซ้ำออก')) return;
+      if (!(await ask({ title: 'รวมกลุ่มเรียนซ้ำ?', msg: 'รวม "' + names + '" เข้ากับ "' + idx.groups.get(keep).name + '" รายวิชาและตารางของกลุ่มที่รวมจะย้ายมาที่กลุ่มนี้ แล้วลบกลุ่มที่ซ้ำออก', ok: 'รวมกลุ่ม' }))) return;
       others.forEach((g) => TT.mergeGroups(state, keep, g));
       commit();
       toast('รวมกลุ่มเรียนแล้ว');
@@ -415,9 +473,9 @@
         commit();
         toast(r.title + ' ครบ ' + res.groups + ' กลุ่ม · มีครู ' + res.withTeacher + ' กลุ่ม · ว่าง ' + (res.groups - res.withTeacher) + ' กลุ่ม');
       };
-      $('[data-rdel]', box).onclick = () => {
+      $('[data-rdel]', box).onclick = async () => {
         const n = state.assignments.filter((a) => a.recurringId === r.id).length;
-        if (!confirm('ลบกิจกรรม "' + r.title + '"?' + (n ? '\nภาระงานที่สร้างไว้ ' + n + ' รายการจะถูกลบด้วย' : ''))) return;
+        if (!(await ask({ tone: 'danger', title: 'ลบกิจกรรม "' + r.title + '"?', msg: n ? 'ภาระงานที่สร้างไว้ ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
         TT.removeRecurring(state, r.id);
         commit();
       };
@@ -491,30 +549,33 @@
       '</div>';
   }
 
-  function setDayMode(d, mode) {
+  async function setDayMode(d, mode) {
     const s = state.settings;
     const cur = dayMode(d);
     if (cur === mode) return;
     const di = s.days.indexOf(d);
     if (mode === 'closed' && di >= 0) {
       const n = state.placements.filter((p) => p.day === di).length;
-      if (n && !confirm('วัน' + d + 'มีคาบที่จัดไว้ ' + n + ' ก้อน จะถูกนำออกจากตาราง ต้องการทำต่อไหม?')) return render();
+      if (n && !(await ask({ title: 'ห้ามจัดวัน' + d + '?', msg: 'วัน' + d + 'มีคาบที่จัดไว้ ' + n + ' ก้อน จะถูกนำออกจากตาราง', ok: 'ทำต่อ' }))) return render();
       state.placements = state.placements.filter((p) => p.day !== di);
     }
-    s.closedDays = s.closedDays.filter((x) => x !== d);
-    if (mode === 'closed') s.closedDays.push(d);
     const next = TT.ALL_DAYS.filter((x) => (x === d ? mode !== 'hidden' : s.days.includes(x)));
     if (!next.length) { toast('ต้องมีอย่างน้อย 1 วัน', true); return render(); }
-    if (next.join() !== s.days.join()) changeDays(next);
-    else commit();
+    const setClosed = () => {
+      s.closedDays = s.closedDays.filter((x) => x !== d);
+      if (mode === 'closed') s.closedDays.push(d);
+    };
+    if (next.join() !== s.days.join()) await changeDays(next, setClosed);
+    else { setClosed(); commit(); }
   }
 
   /** เปลี่ยนวันเรียน โดยย้ายคาบที่จัดไว้/เวลาไม่ว่าง ให้อยู่วันเดิม */
-  function changeDays(next) {
+  async function changeDays(next, before) {
     const s = state.settings;
     const map = s.days.map((d) => next.indexOf(d));
     const lost = state.placements.filter((p) => map[p.day] < 0).length;
-    if (lost && !confirm('มีคาบที่จัดไว้ในวันที่เอาออก ' + lost + ' ก้อน ซึ่งจะถูกนำออกจากตาราง ต้องการทำต่อไหม?')) return render();
+    if (lost && !(await ask({ title: 'เอาวันออก?', msg: 'มีคาบที่จัดไว้ในวันที่เอาออก ' + lost + ' ก้อน ซึ่งจะถูกนำออกจากตาราง', ok: 'ทำต่อ' }))) return render();
+    if (before) before();
     state.placements = state.placements.filter((p) => map[p.day] >= 0).map((p) => ({ ...p, day: map[p.day] }));
     for (const ent of [...state.teachers, ...state.groups]) {
       ent.unavailable = (ent.unavailable || []).map((k) => {
@@ -554,7 +615,7 @@
       commit();
       $('details.cols-edit').open = true;
     };
-    $('#col-reset', el).onclick = () => { if (confirm('คืนค่าโครงสร้างคาบเริ่มต้น?')) { state.settings.columns = TT.defaultColumns(); commit(); } };
+    $('#col-reset', el).onclick = async () => { if (await ask({ title: 'คืนค่าโครงสร้างคาบเริ่มต้น?', ok: 'คืนค่า' })) { state.settings.columns = TT.defaultColumns(); commit(); } };
   }
 
   /* ------------------------------ ข้อมูลพื้นฐาน ------------------------------ */
@@ -670,10 +731,10 @@
       const f = e.target.files[0];
       if (!f) return;
       const r = new FileReader();
-      r.onload = () => {
+      r.onload = async () => {
         try {
           const next = TT.normalizeState(JSON.parse(r.result));
-          if (!confirm('แทนที่ข้อมูลปัจจุบันด้วยข้อมูลจากไฟล์ "' + f.name + '"?')) return;
+          if (!(await ask({ title: 'เปิดไฟล์สำรอง?', msg: 'ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลจากไฟล์ "' + f.name + '"', ok: 'แทนที่' }))) return;
           state = next;
           ui.viewId = '';
           commit();
@@ -685,14 +746,14 @@
       r.readAsText(f);
     };
     $('#sample', el).onclick = loadSample;
-    $('#new-term', el).onclick = () => {
-      if (!confirm('ล้างภาระงานสอนและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้)?\nแนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน')) return;
+    $('#new-term', el).onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'เริ่มภาคเรียนใหม่?', msg: 'ล้างภาระงานสอนและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้) แนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน', ok: 'ล้างและเริ่มใหม่' }))) return;
       state.assignments = [];
       state.placements = [];
       commit();
     };
-    $('#wipe', el).onclick = () => {
-      if (!confirm('ล้างข้อมูลทั้งหมด? ย้อนกลับไม่ได้')) return;
+    $('#wipe', el).onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'ล้างข้อมูลทั้งหมด?', msg: 'ย้อนกลับไม่ได้ ควรบันทึกไฟล์สำรองก่อน', ok: 'ล้างทั้งหมด' }))) return;
       state = TT.emptyState();
       commit();
     };
@@ -821,18 +882,18 @@
     });
   }
 
-  function deleteEntity(kind, item) {
+  async function deleteEntity(kind, item) {
     const n = usageCount(kind, item.id);
     const label = item.name || item.code || 'รายการนี้';
     if (kind === 'teachers') {
-      if (!confirm('ลบ "' + label + '"?' + (n ? '\nภาระงานสอนที่เกี่ยวข้องจะถูกลบด้วย (กิจกรรมประจำจะเหลือไว้แบบยังไม่มีครู)' : ''))) return;
+      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้องจะถูกลบด้วย (กิจกรรมประจำจะเหลือไว้แบบยังไม่มีครู)' : '', ok: 'ลบ' }))) return;
       state.assignments.forEach((a) => { if (a.recurringId && a.teacherId === item.id) a.teacherId = ''; });
       state.assignments = state.assignments.filter((a) => a.teacherId !== item.id);
     } else if (kind === 'subjects') {
-      if (!confirm('ลบ "' + label + '"?' + (n ? '\nภาระงานสอนที่เกี่ยวข้อง ' + n + ' รายการจะถูกลบด้วย' : ''))) return;
+      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้อง ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
       state.assignments = state.assignments.filter((a) => a.subjectId !== item.id);
     } else {
-      if (!confirm('ลบ "' + label + '"?')) return;
+      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', ok: 'ลบ' }))) return;
       if (kind === 'groups') {
         state.assignments.forEach((a) => (a.groupIds = a.groupIds.filter((g) => g !== item.id)));
         state.assignments = state.assignments.filter((a) => !(a.recurringId && !a.groupIds.length));
@@ -939,7 +1000,7 @@
       commit();
       toast('นำเข้า ' + res.rows + ' แถว · รายวิชาใหม่ ' + res.subjectsAdded + ' · กลุ่มใหม่ ' + res.groupsAdded + ' · รายการรอเลือกครู ' + res.assignmentsAdded +
         (res.merged ? ' (เรียนรวม ' + res.merged + ')' : '') + (res.activities ? ' · วิชากิจกรรมลงตาราง ' + res.activities : '') + (res.existing ? ' · มีอยู่แล้ว ' + res.existing : ''));
-      if (res.problems.length) alert('มีบางแถวที่ต้องตรวจ:\n' + [...new Set(res.problems)].slice(0, 20).join('\n'));
+      if (res.problems.length) ask({ tone: 'info', title: 'มีบางแถวที่ต้องตรวจ', items: [...new Set(res.problems)].slice(0, 20), cancel: false });
     };
     dlg.showModal();
     ta.focus();
@@ -1076,7 +1137,7 @@
           const term = (a) => (TT.isTerm(a) ? ' · ทั้งเทอม' : '');
           if (list.length === 1) return chip(list[0], '<b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + esc(groupsLabel(list[0], idx)) + term(list[0]) + '</small>');
           // วิชาเดียวกันหลายกลุ่ม: เขียนชื่อวิชาครั้งเดียว แล้วแยกกลุ่มไว้ข้างใต้
-          return '<div class="tsubj"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม</small></div>' +
+          return '<div class="tsubj ' + P.colorClass(state, list[0]) + '"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม</small></div>' +
             list.map((a) => chip(a, '<small class="g">' + esc(groupsLabel(a, idx)) + term(a) + '</small>')).join('') + '</div>';
         }).join('') || '<p class="hint">ยังไม่มีวิชา</p>') + '</div>' +
         '<button class="btn small ghost tc-add" data-new="' + esc(t.id) + '">+ เพิ่มวิชาที่ไม่มีในแผน</button>' +
@@ -1157,8 +1218,8 @@
       toast('บันทึกแล้ว');
     };
     const del = $('#e-del', dlg);
-    if (del) del.onclick = () => {
-      if (!confirm('ลบวิชานี้? คาบที่จัดไว้จะถูกนำออกจากตารางด้วย')) return;
+    if (del) del.onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'ลบวิชานี้?', msg: 'คาบที่จัดไว้จะถูกนำออกจากตารางด้วย', ok: 'ลบ' }))) return;
       state.assignments = state.assignments.filter((x) => x !== a);
       dlg.close();
       commit();
@@ -1244,7 +1305,7 @@
       added++;
     }
     commit();
-    if (problems.length) alert('นำเข้า ' + added + ' รายการ แต่มีปัญหา:\n' + [...new Set(problems)].slice(0, 20).join('\n'));
+    if (problems.length) ask({ tone: 'info', title: 'นำเข้า ' + added + ' รายการ แต่มีบางแถวที่ต้องตรวจ', items: [...new Set(problems)].slice(0, 20), cancel: false });
     return 'เพิ่มภาระงาน ' + added + ' รายการ';
   }
 
@@ -1349,8 +1410,8 @@
       render();
     }));
     const ca = $('#clear-all', el);
-    if (ca) ca.onclick = () => {
-      if (!confirm('นำคาบที่ไม่ได้ล็อกของทุกคนออกจากตารางรายสัปดาห์? (กิจกรรมประจำและคาบที่ล็อกไว้จะอยู่เหมือนเดิม)')) return;
+    if (ca) ca.onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'ล้างตารางรายสัปดาห์ของทุกคน?', msg: 'นำคาบที่ไม่ได้ล็อกออก (กิจกรรมประจำและคาบที่ล็อกไว้จะอยู่เหมือนเดิม)', ok: 'ล้าง' }))) return;
       state.placements = state.placements.filter((p) => p.locked);
       commit();
     };
@@ -1564,7 +1625,7 @@
     });
   }
 
-  function placeAt(key, day, start) {
+  async function placeAt(key, day, start) {
     const { assignmentId, blockIndex } = parseKey(key);
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
@@ -1574,7 +1635,7 @@
     if (snapped == null) { toast(TT.checkPlacement(state, a, blockIndex, day, start).reasons[0], true); return; }
     start = snapped;
     const r = TT.checkPlacement(state, a, blockIndex, day, start);
-    if (!r.ok && !confirm('คาบนี้จะชนกัน:\n- ' + r.reasons.join('\n- ') + '\n\nต้องการวางต่อไหม?')) return;
+    if (!r.ok && !(await conflictAsk(r.reasons, 'วาง'))) return;
     const old = TT.findPlacement(state, assignmentId, blockIndex);
     state.placements = state.placements.filter((p) => p !== old);
     state.placements.push({ assignmentId, blockIndex, day, start, locked: old ? old.locked : false });
@@ -1632,8 +1693,8 @@
     $$('[data-mode]', el).forEach((b) => (b.onclick = () => { ui.mode = b.dataset.mode; ui.selected = null; render(); }));
     const on = (sel, fn) => { const b = $(sel, el); if (b) b.onclick = fn; };
     on('#auto', runAuto);
-    on('#clear-one', () => {
-      if (!confirm('นำคาบที่ไม่ได้ล็อกของ "' + v.name(ent) + '" ออกจากตาราง?')) return;
+    on('#clear-one', async () => {
+      if (!(await ask({ tone: 'danger', title: 'ล้างตารางของ "' + v.name(ent) + '"?', msg: 'นำคาบที่ไม่ได้ล็อกออกจากตาราง', ok: 'ล้าง' }))) return;
       const ids = new Set(state.assignments.filter((a) => v.match(a, ent.id)).map((a) => a.id));
       state.placements = state.placements.filter((p) => p.locked || !ids.has(p.assignmentId));
       commit();
@@ -1851,7 +1912,7 @@
   }
 
   /** วางวิชาทั้งเทอมที่สัปดาห์/วัน/คาบที่คลิก (เลื่อนคาบเริ่มให้พอดี ถ้าว่างไม่พอจะลดชั่วโมงลง) */
-  function termPlace(assignmentId, week, day, p) {
+  async function termPlace(assignmentId, week, day, p) {
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
     const st = TT.termStatus(state, a);
@@ -1867,7 +1928,7 @@
       start = TT.snapSession(state, a, week, day, p, len, null, cache);
       if (start == null) { toast('ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
       const chk = TT.checkSession(state, a, week, day, start, len, null, cache);
-      if (!confirm('ช่วงนี้จะชนกัน:\n- ' + chk.reasons.join('\n- ') + '\n\nต้องการวางต่อไหม?')) return;
+      if (!(await conflictAsk(chk.reasons, 'วาง'))) return;
     }
     TT.addSession(state, assignmentId, week, day, { start, len });
     const after = TT.termStatus(state, a);
@@ -1877,14 +1938,14 @@
   }
 
   /** ย้ายวันที่วางไว้ ไปสัปดาห์/วัน/คาบใหม่ */
-  function termMove(sessionId, week, day, p) {
+  async function termMove(sessionId, week, day, p) {
     const x = state.sessions.find((y) => y.id === sessionId);
     if (!x) return;
     const a = state.assignments.find((y) => y.id === x.assignmentId);
     const start = TT.snapSession(state, a, week, day, p, x.len, x.id);
     if (start == null) { toast('ช่วงนี้วาง ' + x.len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
     const chk = TT.checkSession(state, a, week, day, start, x.len, x.id);
-    if (!chk.ok && !confirm('ช่วงนี้จะชนกัน:\n- ' + chk.reasons.join('\n- ') + '\n\nต้องการย้ายต่อไหม?')) return;
+    if (!chk.ok && !(await conflictAsk(chk.reasons, 'ย้าย'))) return;
     Object.assign(x, { week, day, start });
     commit();
   }
@@ -1943,14 +2004,14 @@
       commit();
       toast(r.remaining ? 'เติมได้ ' + r.added + ' ชม. ยังเหลือ ' + r.remaining + ' ชม. (เวลาไม่พอ)' : 'เติมครบแล้ว (' + r.added + ' ชม.)', !!r.remaining);
     }));
-    $$('[data-tclr]', el).forEach((b) => (b.onclick = () => {
-      if (!confirm('ล้างวันที่วางไว้ทั้งหมดของวิชานี้?')) return;
+    $$('[data-tclr]', el).forEach((b) => (b.onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'ล้างวันที่วางไว้ทั้งหมดของวิชานี้?', ok: 'ล้าง' }))) return;
       state.sessions = state.sessions.filter((x) => x.assignmentId !== b.dataset.tclr);
       commit();
     }));
     const clr = $('#term-clear', el);
-    if (clr) clr.onclick = () => {
-      if (!confirm('ล้างตารางทั้งเทอมทั้งหมดของ "' + v.name(ent) + '"?')) return;
+    if (clr) clr.onclick = async () => {
+      if (!(await ask({ tone: 'danger', title: 'ล้างตารางทั้งเทอมของ "' + v.name(ent) + '"?', msg: 'วันที่วางไว้ทั้งหมดของทุกวิชาจะถูกนำออก', ok: 'ล้าง' }))) return;
       const ids = new Set(state.assignments.filter((a) => v.match(a, ent.id)).map((a) => a.id));
       state.sessions = state.sessions.filter((x) => !ids.has(x.assignmentId));
       commit();

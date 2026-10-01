@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261001c">
+  <link rel="stylesheet" href="css/style.css?v=20261001d">
 </head>
 <body>
   <header class="app-header no-print">
@@ -77,13 +77,21 @@
     <div class="btns end"><button class="btn dlg-cancel">ยกเลิก</button><button class="btn primary dlg-ok">ตกลง</button></div>
   </dialog>
 
+  <dialog id="dlg-ask" class="ask no-print" aria-labelledby="ask-title">
+    <div class="ask-head"><span class="ask-ic" aria-hidden="true"></span><h3 id="ask-title"></h3></div>
+    <p class="ask-msg"></p>
+    <ul class="ask-list"></ul>
+    <p class="ask-q"></p>
+    <div class="btns end"><button class="btn ask-cancel">ยกเลิก</button><button class="btn primary ask-ok">ตกลง</button></div>
+  </dialog>
+
   <div id="toast" class="no-print"></div>
 
-  <script src="js/core.js?v=20261001c"></script>
-  <script src="js/sample.js?v=20261001c"></script>
-  <script src="js/plans.js?v=20261001c"></script>
-  <script src="js/grid.js?v=20261001c"></script>
-  <script src="js/print.js?v=20261001c"></script>
-  <script src="js/app.js?v=20261001c"></script>
+  <script src="js/core.js?v=20261001d"></script>
+  <script src="js/sample.js?v=20261001d"></script>
+  <script src="js/plans.js?v=20261001d"></script>
+  <script src="js/grid.js?v=20261001d"></script>
+  <script src="js/print.js?v=20261001d"></script>
+  <script src="js/app.js?v=20261001d"></script>
 </body>
 </html>
