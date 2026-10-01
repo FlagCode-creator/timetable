@@ -1186,7 +1186,7 @@
       '<section class="card pool" id="pool" aria-label="วิชาที่ยังไม่มีครู"><div class="card-head"><h2>ยังไม่มีครู</h2>' +
       '<span class="badge ' + (pool.length ? 'warn' : 'ok') + '">' + (pool.length ? pool.length + ' วิชา' : 'มอบครบแล้ว') + '</span></div>' +
       (sel ? '<div class="pool-target">มอบให้: <b>' + esc(sel.name) + '</b></div>' : '<div class="pool-target muted">ยังไม่ได้เลือกครู — คลิกการ์ดครูทางขวาก่อน</div>') +
-      '<label class="search">' + ICON.search + '<input type="search" id="pool-q" aria-label="ค้นหาวิชา" placeholder="ค้นหาวิชา หรือกลุ่มเรียน" value="' + esc(ui.listFilter) + '"></label>' +
+      '<label class="search">' + ICON.search + '<input type="search" id="pool-q" aria-label="ค้นหาวิชา" placeholder="ค้นหารหัส/ชื่อวิชา หรือกลุ่มเรียน (รวมคลังรายวิชา)" value="' + esc(ui.listFilter) + '"></label>' +
       '<div id="pool-list" class="pool-list"></div></section>' +
       '<section class="teachers"><div class="toolbar"><label class="search">' + ICON.search + '<input type="search" id="t-q" aria-label="ค้นหาครู" placeholder="ค้นหาครู" value="' + esc(ui.teacherFilter || '') + '"></label>' +
       '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางภาระงานจาก Excel</button></div>' +
@@ -1263,15 +1263,45 @@
       if (!byGroup.has(g)) byGroup.set(g, []);
       byGroup.get(g).push(a);
     }
+    // ค้นหาแล้วแสดงวิชาจากคลังรายวิชาด้วย (วิชาที่ยังไม่มีกลุ่มเรียน/ยังไม่ได้มอบ) คลิกแล้วเลือกกลุ่มให้ครูที่เลือก
+    let lib = [];
+    if (q) {
+      const seen = new Set();
+      const hit = (x) => (x.code + ' ' + x.name).toLowerCase().includes(q);
+      for (const x of state.subjects) if (hit(x) && !seen.has(x.code)) { seen.add(x.code); lib.push({ id: x.id, code: x.code, name: x.name, h: TT.subjectHours(x) }); }
+      for (const c of catalogMissing()) for (const x of c.missing) if (hit(x) && !seen.has(x.code)) { seen.add(x.code); lib.push({ code: x.code, name: x.name, h: TT.subjectHours(x), from: c.name }); }
+      lib.sort((a, b) => a.code.localeCompare(b.code));
+    }
+    const libHtml = lib.length
+      ? '<div class="pool-group lib"><div class="eg-name">คลังรายวิชา · คลิกแล้วเลือกกลุ่มเรียนให้ครูที่เลือก</div>' + lib.slice(0, 40).map((x) =>
+          '<button class="pool-item lib-item" data-lib="' + esc(x.code) + '" title="มอบวิชานี้ให้ครูที่เลือก (เลือกกลุ่มเรียนในขั้นต่อไป)">' +
+          '<i class="dot-c"></i><span class="grow">' + esc(x.code + ' ' + x.name) + (x.from ? ' <small class="muted">(' + esc(x.from) + ')</small>' : '') + '</span>' +
+          '<small>' + x.h + ' ชม.</small></button>').join('') + (lib.length > 40 ? '<p class="hint">… อีก ' + (lib.length - 40) + ' วิชา พิมพ์ให้ละเอียดขึ้น</p>' : '') + '</div>'
+      : '';
     const box = $('#pool-list');
     box.innerHTML = [...byGroup.entries()].sort((x, y) => x[0].localeCompare(y[0], 'th')).map(([g, as]) =>
       '<div class="pool-group"><div class="eg-name">' + esc(g) + '</div>' + as.map((a) =>
         '<button class="pool-item ' + P.colorClass(state, a) + '" draggable="true" data-aid="' + esc(a.id) + '" title="คลิกเพื่อมอบให้ครูที่เลือก หรือลากไปวางบนการ์ดครู">' +
         '<i class="dot-c ' + P.colorClass(state, a) + '"></i><span class="grow">' + esc(subjLabel(a, idx)) + (a.recurringId ? ' ' + ICON.lock : '') + '</span>' +
         '<small>' + TT.assignmentHours(a, idx.subjects) + ' ชม.</small></button>').join('') + '</div>').join('') ||
-      '<p class="ok-line">' + ICON.check + (q ? 'ไม่พบวิชาที่ค้นหา' : 'ทุกวิชามีครูแล้ว') + '</p>' +
-      (state.assignments.length ? '' : '<p class="hint">ยังไม่มีรายวิชา กด "นำเข้าแผนการเรียน" ด้านบน</p>');
-    $$('.pool-item', box).forEach((b) => {
+      (lib.length ? '' : '<p class="ok-line">' + ICON.check + (q ? 'ไม่พบวิชาที่ค้นหา' : 'ทุกวิชามีครูแล้ว') + '</p>' +
+      (state.assignments.length ? '' : '<p class="hint">ยังไม่มีรายวิชา กด "นำเข้าแผนการเรียน" ด้านบน</p>'));
+    if (libHtml) box.insertAdjacentHTML('beforeend', libHtml);
+    $$('[data-lib]', box).forEach((b) => (b.onclick = () => {
+      if (!ui.assignTeacher || ui.assignTeacher === '__none') { toast('คลิกเลือกครูทางขวาก่อน แล้วค่อยคลิกวิชา', true); return; }
+      const code = b.dataset.lib;
+      let sj = state.subjects.find((x) => x.code === code);
+      if (!sj) {
+        const x = catalogMissing().flatMap((c) => c.missing).find((y) => y.code === code);
+        if (!x) return;
+        sj = { id: TT.uid('s'), ...x };
+        state.subjects.push(sj);
+        save();
+      }
+      editAssignment({ id: TT.uid('a'), teacherId: ui.assignTeacher, subjectId: sj.id, title: '', groupIds: [], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' }, true);
+      setTimeout(() => { const gb = $('#e-groups'); if (gb) gb.click(); }, 50); // เปิดเลือกกลุ่มเรียนให้เลย
+    }));
+    $$('.pool-item:not(.lib-item)', box).forEach((b) => {
       b.ondragstart = (e) => e.dataTransfer.setData('text/plain', b.dataset.aid);
       b.onclick = () => {
         const a = state.assignments.find((x) => x.id === b.dataset.aid);
