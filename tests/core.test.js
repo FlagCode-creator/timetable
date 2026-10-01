@@ -468,3 +468,22 @@ test('รายวิชา 2/2568: 105 วิชา เพิ่มเฉพา
     if (x) assert.deepStrictEqual([x.name, x.t, x.p, x.n], [c[2], Number(c[3]), Number(c[4]), Number(c[5])], c[1]);
   }
 });
+
+test('เปลี่ยนครูที่ปรึกษาหลังล็อก Home Room แล้ว: ผู้สอน Home Room เปลี่ยนตาม คาบยังล็อกเดิม', () => {
+  const s = mini();
+  s.groups[0].advisor = 'ครู ก';
+  TT.applyRecurring(s, 'rec_homeroom');
+  const hr = (g) => s.assignments.find((a) => a.recurringId === 'rec_homeroom' && a.groupIds[0] === g);
+  assert.strictEqual(hr('g1').teacherId, 't1');
+  const r = TT.setAdvisor(s, 'g1', 't2');
+  assert.strictEqual(hr('g1').teacherId, 't2');
+  assert.strictEqual(s.groups[0].advisor, s.teachers.find((t) => t.id === 't2').name);
+  assert.deepStrictEqual(r.others, []);
+  assert.ok(s.placements.filter((p) => p.assignmentId === hr('g1').id).every((p) => p.locked && p.day === 2 && p.start === 1));
+  // ครูคนเดียวกัน 2 กลุ่ม: ทำได้แต่เตือน
+  assert.strictEqual(TT.setAdvisor(s, 'g2', 't2').others.length, 1);
+  TT.setAdvisor(s, 'g2', '');
+  assert.strictEqual(hr('g2').teacherId, '');
+  assert.strictEqual(s.groups[1].advisor, '');
+  assert.strictEqual(TT.findTeacherByName(s, ' ครู  ก ').id, 't1');
+});

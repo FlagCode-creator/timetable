@@ -1232,6 +1232,29 @@
     return res;
   }
 
+  /** หาครูจากชื่อ (ไม่สนช่องว่าง/จุด) */
+  function findTeacherByName(state, name) {
+    const k = looseName(name);
+    return k ? state.teachers.find((t) => looseName(t.name) === k) || null : null;
+  }
+
+  /**
+   * เปลี่ยนครูที่ปรึกษาของกลุ่ม: ใส่ชื่อในข้อมูลกลุ่ม และเป็นผู้สอน Home Room (กิจกรรมประจำของกลุ่ม) ของกลุ่มนั้น
+   * คืนค่ากลุ่มอื่นที่ครูคนนี้เป็นที่ปรึกษาอยู่แล้ว (ไว้เตือน)
+   */
+  function setAdvisor(state, groupId, teacherId) {
+    const g = state.groups.find((x) => x.id === groupId);
+    const t = teacherId ? state.teachers.find((x) => x.id === teacherId) : null;
+    if (!g) return { others: [] };
+    g.advisor = t ? t.name : '';
+    const groupRecs = new Set((state.settings.recurring || []).filter((r) => r.scope !== 'teacher').map((r) => r.id));
+    for (const a of state.assignments) {
+      if (groupRecs.has(a.recurringId) && (a.groupIds || [])[0] === groupId) a.teacherId = t ? t.id : '';
+    }
+    const others = t ? state.groups.filter((x) => x.id !== groupId && looseName(x.advisor) === looseName(t.name)) : [];
+    return { others };
+  }
+
   /** กิจกรรมของครู (เช่น PLC): ครูทุกคนยกเว้นที่ติ๊กออก 1 รายการต่อครู ล็อกไว้ */
   function applyTeacherActivity(state, rec, day, start, len) {
     const exclude = new Set(rec.exclude || []);
@@ -1456,6 +1479,8 @@
     allBlocks,
     cellKey,
     checkPlacement,
+    findTeacherByName,
+    setAdvisor,
     parseSubjectRows,
     addSubjects,
     defaultPLC,

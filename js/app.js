@@ -548,8 +548,15 @@
         TT.removeRecurring(state, r.id);
         commit();
       };
-      const nb = $('[data-rnone]', box);
-      if (nb) nb.onclick = () => { ui.assignTeacher = '__none'; go('assign'); };
+      $$('[data-adv]', box).forEach((sel) => (sel.onchange = () => {
+        const res = TT.setAdvisor(state, sel.dataset.adv, sel.value);
+        ui.recOpen = r.id;
+        commit();
+        const g = state.groups.find((x) => x.id === sel.dataset.adv) || {};
+        const t = state.teachers.find((x) => x.id === sel.value);
+        toast(t ? (g.name || g.code) + ' → ' + t.name + (res.others.length ? ' · ครูคนนี้เป็นที่ปรึกษา ' + res.others.map((x) => x.name || x.code).join(', ') + ' ด้วย' : '')
+          : (g.name || g.code) + ' ยังไม่มีครู', !!res.others.length);
+      }));
     });
     $$('[data-lw]', el).forEach((inp) => (inp.onchange = () => {
       const n = Math.max(1, Math.min(40, Math.round(Number(inp.value) || 18)));
@@ -590,7 +597,7 @@
       status = '<li class="ok">' + ICON.check + '<span>สร้างแล้ว ' + mine.length + ' กลุ่มเรียน · มีครูแล้ว ' + (mine.length - blank.length) + ' กลุ่ม</span></li>' +
         (blank.length
           ? '<li class="warn">' + ICON.info + '<span>ยังไม่มีครู ' + blank.length + ' กลุ่ม: ' + esc(blankNames.slice(0, 6).join(', ')) + (blankNames.length > 6 ? ' …' : '') +
-            ' <button class="linkish" data-rnone>เลือกครูที่หน้าภาระงาน</button></span></li>'
+            ' — เลือกได้ในตารางด้านล่าง</span></li>'
           : '');
     } else {
       const clone = JSON.parse(JSON.stringify(state));
@@ -615,8 +622,29 @@
       '<label>กลุ่มเรียน<select disabled><option>ทุกกลุ่ม (' + state.groups.length + ')</option></select></label>' +
       '</div>' +
       '<ul class="rec-status">' + status + '</ul>' +
+      (mine.length ? advisorTable(r, mine, blank.length) : '') +
       '<button class="btn primary block" data-rgo>' + (mine.length ? 'อัปเดต' : 'สร้าง') + ' ' + esc(r.title) + ' ให้ทุกกลุ่ม</button>' +
       '</div>';
+  }
+
+  /** ตารางเลือกครูที่ปรึกษา (ผู้สอน Home Room) รายกลุ่ม */
+  function advisorTable(r, mine, blankCount) {
+    const byGroup = new Map(mine.map((a) => [(a.groupIds || [])[0], a]));
+    const count = new Map();
+    mine.forEach((a) => { if (a.teacherId) count.set(a.teacherId, (count.get(a.teacherId) || 0) + 1); });
+    const groups = state.groups.filter((g) => byGroup.has(g.id));
+    const rows = groups.map((g) => {
+      const a = byGroup.get(g.id);
+      const opts = '<option value="">- ยังไม่มีครู -</option>' + state.teachers.map((t) => {
+        const n = (count.get(t.id) || 0) - (t.id === a.teacherId ? 1 : 0);
+        return '<option value="' + esc(t.id) + '"' + (t.id === a.teacherId ? ' selected' : '') + '>' + esc(t.name) + (n > 0 ? ' (มีกลุ่มแล้ว)' : '') + '</option>';
+      }).join('');
+      return '<tr' + (a.teacherId ? '' : ' class="need-row"') + '><td>' + esc(g.name || g.code) + '</td>' +
+        '<td><select data-adv="' + esc(g.id) + '" aria-label="ครูที่ปรึกษา ' + esc(g.name || g.code) + '"' + (a.teacherId ? '' : ' class="need"') + '>' + opts + '</select></td></tr>';
+    }).join('');
+    return '<details class="rec-who adv"' + (blankCount || ui.recOpen === r.id ? ' open' : '') + '><summary>เลือกครูที่ปรึกษาแต่ละกลุ่ม' + (blankCount ? ' (ยังว่าง ' + blankCount + ' กลุ่ม)' : '') + '</summary>' +
+      '<p class="hint">เปลี่ยนแล้วชื่อครูที่ปรึกษาในข้อมูลกลุ่มเรียนเปลี่ยนตาม · Home Room ยังล็อกที่วัน/คาบเดิม</p>' +
+      '<table class="data adv-table"><tbody>' + rows + '</tbody></table></details>';
   }
 
   /** การ์ดกิจกรรมของครู (PLC): ครูทุกคน ยกเว้นที่ติ๊กออก */
@@ -982,10 +1010,30 @@
         }
         item[f.k] = f.type === 'bool' ? inp.checked : f.type === 'num' ? (inp.value === '' ? '' : Number(inp.value) || 0) : inp.value.trim();
         if (kind === 'subjects') $('.hrs', tr).textContent = TT.subjectHours(item);
+        if (kind === 'groups' && f.k === 'advisor') { advisorChanged(item); return; }
         save();
       }));
       $('[data-del]', tr).onclick = () => deleteEntity(kind, item);
     });
+  }
+
+  /** แก้ชื่อครูที่ปรึกษาในหน้ากลุ่มเรียน → ผู้สอน Home Room ของกลุ่มเปลี่ยนตาม */
+  function advisorChanged(g) {
+    const hasHR = state.assignments.some((a) => a.recurringId && (a.groupIds || [])[0] === g.id);
+    const name = norm(g.advisor);
+    const t = TT.findTeacherByName(state, name);
+    if (!hasHR) { save(); return; }
+    if (name && !t) {
+      TT.setAdvisor(state, g.id, '');
+      g.advisor = name;
+      save();
+      toast('ไม่พบ "' + name + '" ในรายชื่อครู · Home Room ของ ' + (g.name || g.code) + ' ยังไม่มีครู', true);
+      return;
+    }
+    const r = TT.setAdvisor(state, g.id, t ? t.id : '');
+    save();
+    toast(t ? 'Home Room ของ ' + (g.name || g.code) + ' → ' + t.name + (r.others.length ? ' (เป็นที่ปรึกษา ' + r.others.map((x) => x.name || x.code).join(', ') + ' ด้วย)' : '')
+      : 'Home Room ของ ' + (g.name || g.code) + ' ยังไม่มีครู', !!r.others.length);
   }
 
   async function deleteEntity(kind, item) {
@@ -1592,7 +1640,7 @@
     const canUnav = ui.view !== 'room';
     let hint;
     if (!sel) hint = 'คลิกการ์ด "ยังไม่ได้จัด" ทางขวา แล้วคลิกช่องสีเขียวในตาราง · หรือคลิกคาบในตารางเพื่อย้าย/แก้ไข · หรือกด "จัดอัตโนมัติ"';
-    else if (sel.a.recurringId) hint = 'กิจกรรมประจำ แก้วัน/เวลาได้ที่ <button class="linkish" data-gorules>เงื่อนไข</button>';
+    else if (sel.a.recurringId) hint = 'กิจกรรมประจำ (ล็อก) · เปลี่ยนวัน/เวลา หรือครูที่ปรึกษา ได้ที่ <button class="linkish" data-gorules>ตั้งค่า → เงื่อนไข</button>';
     else {
       const sj = sel.a.subjectId ? idx.subjects.get(sel.a.subjectId) : null;
       hint = 'เลือก <b>' + esc(sj ? sj.code : sel.a.title) + '</b> · ' + sel.len + ' คาบ' +
