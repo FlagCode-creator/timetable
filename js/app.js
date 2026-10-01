@@ -632,8 +632,17 @@
     const byGroup = new Map(mine.map((a) => [(a.groupIds || [])[0], a]));
     const count = new Map();
     mine.forEach((a) => { if (a.teacherId) count.set(a.teacherId, (count.get(a.teacherId) || 0) + 1); });
-    const groups = state.groups.filter((g) => byGroup.has(g.id));
-    const rows = groups.map((g) => {
+    const sorted = sortGroups(state.groups.filter((g) => byGroup.has(g.id)));
+    let cur = null;
+    let alt = false;
+    const rows = sorted.map(({ g, grade, dept }) => {
+      let head = '';
+      if (grade !== cur) {
+        cur = grade;
+        alt = false;
+        head = '<tr class="grade-row"><td colspan="2"><b>' + esc(grade || 'ไม่ทราบชั้นปี') + '</b></td></tr>';
+      }
+      alt = !alt;
       const a = byGroup.get(g.id);
       const opts = '<option value="">- ยังไม่มีครู -</option>' + state.teachers.map((t) => {
         const n = (count.get(t.id) || 0) - (t.id === a.teacherId ? 1 : 0);
@@ -646,7 +655,7 @@
         const og = other && state.groups.find((x) => x.id === other.groupIds[0]);
         why = '<small class="warn">ข้อมูลกลุ่ม: "' + esc(g.advisor) + '" ' + (t ? 'เป็นที่ปรึกษา ' + esc(og ? og.name || og.code : 'กลุ่มอื่น') + ' แล้ว (Home Room เวลาเดียวกัน)' : 'ไม่พบในรายชื่อครู') + '</small>';
       }
-      return '<tr' + (a.teacherId ? '' : ' class="need-row"') + '><td>' + esc(g.name || g.code) + (why ? '<br>' + why : '') + '</td>' +
+      return head + '<tr class="' + (a.teacherId ? '' : 'need-row') + (alt ? '' : ' alt') + '"><td>' + esc(g.name || g.code) + ' <small class="muted">' + esc(dept) + '</small>' + (why ? '<br>' + why : '') + '</td>' +
         '<td><select data-adv="' + esc(g.id) + '" aria-label="ครูที่ปรึกษา ' + esc(g.name || g.code) + '"' + (a.teacherId ? '' : ' class="need"') + '>' + opts + '</select></td></tr>';
     }).join('');
     return '<details class="rec-who adv"' + (blankCount || ui.recOpen === r.id ? ' open' : '') + '><summary>เลือกครูที่ปรึกษาแต่ละกลุ่ม' + (blankCount ? ' (ยังว่าง ' + blankCount + ' กลุ่ม)' : '') + '</summary>' +
@@ -969,6 +978,18 @@
     if (dl) dl.innerHTML = state.departments.filter((d) => norm(d.name)).map((d) => '<option value="' + esc(d.name) + '"></option>').join('');
   }
 
+  /** แผนกของกลุ่ม (ที่ตั้งไว้ หรือที่เดา) */
+  function groupDeptName(g) {
+    const d = state.departments.find((x) => x.id === g.departmentId);
+    return (d && d.name) || groupDept(g) || 'ไม่ระบุแผนก';
+  }
+
+  /** เรียงกลุ่มเรียน: ชั้นปี ปวช.1 → ปวส.2 แล้วแผนก แล้วรหัส · คืน [{ g, grade, dept }] */
+  function sortGroups(list) {
+    return list.map((g) => ({ g, grade: TT.groupGrade(state, g), dept: groupDeptName(g) }))
+      .sort((x, y) => TT.gradeRank(x.grade) - TT.gradeRank(y.grade) || x.dept.localeCompare(y.dept, 'th') || String(x.g.code).localeCompare(String(y.g.code)));
+  }
+
   /** เดาแผนกของกลุ่มเรียน (ถ้ายังไม่ได้ตั้ง): สาขาวิชาหรือชื่อกลุ่มที่มีชื่อแผนกอยู่ เช่น "ปวช.1 ช่างยนต์ 68" → ช่างยนต์ */
   function groupDept(g) {
     const flat = (x) => norm(x).replace(/[\s.]/g, '');
@@ -1005,9 +1026,7 @@
     if (kind === 'groups') {
       // เรียงตามชั้นปี ปวช.1 → ปวส.2 แล้วตามแผนกวิชา · แต่ละชั้นมีหัวข้อ · แถวสลับสี
       const cols = cfg.fields.length + 2;
-      const dn = (g) => deptName(g.departmentId) || groupDept(g) || 'ไม่ระบุแผนก';
-      const sorted = rows.map((g) => ({ g, grade: TT.groupGrade(state, g), dept: dn(g) }))
-        .sort((x, y) => TT.gradeRank(x.grade) - TT.gradeRank(y.grade) || x.dept.localeCompare(y.dept, 'th') || String(x.g.code).localeCompare(String(y.g.code)));
+      const sorted = sortGroups(rows);
       html = '';
       let cur = null;
       let i = 0;
@@ -1465,7 +1484,7 @@
         : '<input id="e-subj" list="subj-list" placeholder="พิมพ์รหัสหรือชื่อวิชา" value="' + esc(sj ? sj.code + ' ' + sj.name : a.title) + '">') + '</label>' +
       '<label class="field">' + (hrRec ? 'ครูที่ปรึกษา' : 'ครูผู้สอน') + '<select id="e-teacher"' + (teacherAct ? ' disabled' : '') + '>' + options(state.teachers, a.teacherId, (t) => t.name, '- ยังไม่มีครู -') + '</select></label>' +
       (hrRec
-        ? '<label class="field">กลุ่มเรียน (ที่ปรึกษา)<select id="e-hrgroup">' + state.groups.map((g) => {
+        ? '<label class="field">กลุ่มเรียน (ที่ปรึกษา)<select id="e-hrgroup">' + sortGroups(state.groups).map(({ g }) => {
             const other = state.assignments.find((x) => x.recurringId === a.recurringId && x.groupIds[0] === g.id && x.id !== a.id);
             const who = other && other.teacherId ? (idx.teachers.get(other.teacherId) || {}).name : '';
             return '<option value="' + esc(g.id) + '"' + (g.id === a.groupIds[0] ? ' selected' : '') + '>' + esc(g.name || g.code) + (g.id === a.groupIds[0] ? '' : who ? ' (ที่ปรึกษา: ' + esc(who) + ')' : ' (ยังไม่มีครู)') + '</option>';
@@ -1597,7 +1616,7 @@
     const search = $('input[type=search]', dlg);
     const fill = () => {
       const q = norm(search.value).toLowerCase();
-      list.innerHTML = state.groups
+      list.innerHTML = sortGroups(state.groups).map((x) => x.g)
         .filter((g) => chosen.has(g.id) || !q || [g.code, g.name, g.level, g.major].join(' ').toLowerCase().includes(q))
         .map((g) => '<label class="chk"><input type="checkbox" value="' + esc(g.id) + '"' + (chosen.has(g.id) ? ' checked' : '') + '> ' +
           esc(g.name) + ' <small>' + esc(g.code) + (g.level ? ' · ' + esc(g.level) : '') + '</small></label>').join('') ||
