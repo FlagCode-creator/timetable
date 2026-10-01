@@ -981,6 +981,12 @@
     if (dl) dl.innerHTML = state.departments.filter((d) => norm(d.name)).map((d) => '<option value="' + esc(d.name) + '"></option>').join('');
   }
 
+  /** คีย์เรียงรหัสวิชา: ไม่สน - กับ * และช่องว่าง (รหัสว่างไปไว้ท้าย) */
+  function codeKey(code) {
+    const c = String(code || '').trim().replace(/[*\s]/g, '-');
+    return c || '\uffff';
+  }
+
   /** แผนกของกลุ่ม (ที่ตั้งไว้ หรือที่เดา) */
   function groupDeptName(g) {
     const d = state.departments.find((x) => x.id === g.departmentId);
@@ -1042,7 +1048,9 @@
         inGrade.forEach((x, i) => (html += rowHtml(x.g, i % 2 === 1)));
       }
     } else {
-      html = rows.map((it, i) => rowHtml(it, i % 2 === 1)).join('');
+      // รายวิชาเรียงตามรหัส เช่น 20000-1301 → 20000-1302 (ถือ - กับ * เหมือนกัน)
+      const list = kind === 'subjects' ? rows.slice().sort((a, b) => codeKey(a.code).localeCompare(codeKey(b.code), 'th', { numeric: true }) || String(a.name).localeCompare(String(b.name), 'th')) : rows;
+      html = list.map((it, i) => rowHtml(it, i % 2 === 1)).join('');
     }
     body.innerHTML = html || '<tr><td colspan="9" class="empty-row">ยังไม่มีข้อมูล กด "+ เพิ่ม" หรือ "วางจาก Excel"</td></tr>';
     fillDeptList();
@@ -1302,7 +1310,7 @@
       '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางภาระงานจาก Excel</button></div>' +
       '<div class="tgrid" id="tgrid"></div></section>' +
       '</div>' +
-      '<datalist id="subj-list">' + state.subjects.map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '"></option>').join('') +
+      '<datalist id="subj-list">' + state.subjects.slice().sort((a, b) => codeKey(a.code).localeCompare(codeKey(b.code), 'th', { numeric: true })).map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '"></option>').join('') +
       catalogMissing().flatMap((c) => c.missing.map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '" label="' + esc(c.name) + '"></option>')).join('') + '</datalist>';
 
     $('#b-plan', el).onclick = openPlanImport;
