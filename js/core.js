@@ -36,7 +36,7 @@
         days: ALL_DAYS.slice(0, 5),
         columns: defaultColumns(),
         signers: { curriculumHead: '', viceDirector: '', director: '' },
-        closedDays: [],
+        closedDays: ['ศุกร์'],
         blocked: [],
         recurring: [defaultRecurring()],
         weeks: 18,
