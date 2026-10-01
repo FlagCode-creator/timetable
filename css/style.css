@@ -686,6 +686,9 @@ div.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; co
 }
 
 /* ---------- หน้าพิมพ์ ---------- */
+/* แถบเลือกประเภทในหน้าพิมพ์ เลื่อนแนวนอนได้บนจอเล็ก */
+.page-print-seg, .toolbar > .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.toolbar > .seg button { white-space: nowrap; }
 #print-area { display: flex; flex-direction: column; gap: 16px; align-items: center; overflow-x: auto; }
 .page {
   width: 297mm; min-height: 210mm; padding: 8mm 9mm; background: #fff; color: #000;

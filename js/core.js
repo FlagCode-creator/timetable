@@ -314,6 +314,21 @@
       return isTerm(a) && x.week >= 1 && x.week <= Math.min(state.settings.weeks, weeksFor(state, a)) &&
         x.day >= 0 && x.day < state.settings.days.length && canSpan(pers, x.start, x.len, true);
     });
+    // ชั่วโมงทั้งเทอมลดลง → เก็บวันแรก ๆ ไว้จนครบ ที่เกินตัดออก (วันสุดท้ายที่เกินบางส่วนตัดท้ายให้พอดี)
+    const byA = new Map();
+    for (const x of state.sessions) { if (!byA.has(x.assignmentId)) byA.set(x.assignmentId, []); byA.get(x.assignmentId).push(x); }
+    const drop = new Set();
+    for (const [aid, list] of byA) {
+      const total = termTotal(state, idx.assignments.get(aid));
+      let used = 0;
+      list.sort((x, y) => x.week - y.week || x.day - y.day || x.start - y.start);
+      for (const x of list) {
+        if (used >= total) { drop.add(x); continue; }
+        if (used + x.len > total) x.len = total - used;
+        used += x.len;
+      }
+    }
+    if (drop.size) state.sessions = state.sessions.filter((x) => !drop.has(x));
     return before - state.placements.length;
   }
 
@@ -728,7 +743,7 @@
     for (const b of allBlocks(state)) {
       const keys = resourceKeys(b.assignment, idx);
       if (b.placement) bump(b.assignment, keys, b.placement.day, b.placement.start, b.len, 1);
-      else units.push({ block: b, a: b.assignment, len: b.len, keys });
+      else if (!b.assignment.recurringId) units.push({ block: b, a: b.assignment, len: b.len, keys }); // กิจกรรมประจำวางเองตามวัน/คาบที่ตั้งไว้เท่านั้น
     }
 
     const positions = [];
@@ -1327,6 +1342,42 @@
     return changed;
   }
 
+  /** กิจกรรมประจำวางลงตารางได้ไหม (วันต้องแสดงอยู่ · Home Room ต้องไม่ใช่วันห้ามจัด · PLC อยู่วันห้ามจัดได้) */
+  function recurringSlotOk(state, r) {
+    const day = state.settings.days.indexOf(r.day);
+    if (day < 0) return { ok: false, reason: 'วัน' + r.day + 'ไม่ได้แสดงในตาราง' };
+    if (r.scope !== 'teacher' && (state.settings.closedDays || []).includes(r.day)) return { ok: false, reason: 'วัน' + r.day + 'ตั้งเป็นห้ามจัด' };
+    if (!canSpan(periods(state.settings), Number(r.start) || 1, Math.max(1, Number(r.len) || 1), true)) return { ok: false, reason: 'คาบที่ตั้งไว้เกินคาบสุดท้าย' };
+    return { ok: true, day };
+  }
+
+  /**
+   * กิจกรรมประจำที่สร้างแล้ว ต้องอยู่ในตารางที่วัน/คาบที่ตั้งไว้และล็อกเสมอ
+   * (เช่น ซ่อนวันแล้วเปิดกลับ หรือแก้โครงสร้างคาบ) — ถ้าวันนั้นใช้ไม่ได้ เอาออกจากตารางไว้ก่อน
+   */
+  function syncRecurringPlacements(state) {
+    let changed = 0;
+    for (const r of state.settings.recurring || []) {
+      const mine = state.assignments.filter((a) => a.recurringId === r.id);
+      if (!mine.length) continue;
+      const ids = new Set(mine.map((a) => a.id));
+      const slot = recurringSlotOk(state, r);
+      if (!slot.ok) {
+        const before = state.placements.length;
+        state.placements = state.placements.filter((p) => !ids.has(p.assignmentId));
+        changed += before - state.placements.length;
+        continue;
+      }
+      const start = Number(r.start) || 1;
+      const wrong = mine.some((a) => {
+        const pls = state.placements.filter((p) => p.assignmentId === a.id);
+        return pls.length !== 1 || pls[0].day !== slot.day || pls[0].start !== start || !pls[0].locked || a.blocks !== String(Math.max(1, Number(r.len) || 1));
+      });
+      if (wrong) { applyRecurring(state, r.id); changed++; }
+    }
+    return changed;
+  }
+
   /** หาครูจากชื่อ (ไม่สนช่องว่าง/จุด) */
   function findTeacherByName(state, name) {
     const k = looseName(name);
@@ -1458,7 +1509,7 @@
    */
   function resizeBlock(state, assignmentId, blockIndex, dHead, dTail) {
     const a = state.assignments.find((x) => x.id === assignmentId);
-    if (!a) return { ok: false, reason: 'ไม่พบภาระงาน' };
+    if (!a) return { ok: false, reason: 'ไม่พบรายการวิชานี้' };
     const blocks = blocksOf(state, a);
     const pl = findPlacement(state, assignmentId, blockIndex);
     if (!pl) { dTail += dHead; dHead = 0; }
@@ -1575,6 +1626,8 @@
     cellKey,
     checkPlacement,
     findTeacherByName,
+    recurringSlotOk,
+    syncRecurringPlacements,
     groupGrade,
     gradeRank,
     GRADE_ORDER,

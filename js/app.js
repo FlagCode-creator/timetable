@@ -39,6 +39,10 @@
   }
 
   function save() {
+    // ทุกครั้งที่บันทึก: กิจกรรมประจำ (Home Room / PLC) ให้ตรงกับรายชื่อครูและกลุ่มเรียนเสมอ
+    syncTeacherActivities();
+    TT.syncAdvisors(state);
+    TT.syncRecurringPlacements(state);
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (e) {
@@ -47,8 +51,6 @@
   }
 
   function commit() {
-    syncTeacherActivities();
-    TT.syncAdvisors(state);
     TT.sanitizePlacements(state);
     save();
     render();
@@ -379,9 +381,9 @@
         }).join('') + '</div>';
       } else if (i.groupIds && i.groupIds.length) {
         actions = '<div class="btns"><button class="btn small" data-see-group="' + esc(i.groupIds[0]) + '">ดูตารางกลุ่มเรียน →</button>' +
-          (i.teacherId ? '<button class="btn small ghost" data-see-teacher="' + esc(i.teacherId) + '">ไปที่ภาระงานของครู →</button>' : '') + '</div>';
+          (i.teacherId ? '<button class="btn small ghost" data-see-teacher="' + esc(i.teacherId) + '">ไปที่วิชาของครูคนนี้ →</button>' : '') + '</div>';
       } else if (i.teacherId || i.type === 'no-group') {
-        actions = '<div class="btns"><button class="btn small" data-see-teacher="' + esc(i.teacherId || '__none') + '">ไปแก้ที่ภาระงานสอน →</button></div>';
+        actions = '<div class="btns"><button class="btn small" data-see-teacher="' + esc(i.teacherId || '__none') + '">ไปแก้ที่หน้ามอบวิชาให้ครู →</button></div>';
       } else if (i.type === 'dup-teacher' || i.type === 'dup-subjectcode') {
         actions = '<div class="btns"><button class="btn small" data-see-data="' + (i.type === 'dup-teacher' ? 'teachers' : 'subjects') + '">ไปแก้ที่ข้อมูล →</button></div>';
       }
@@ -545,7 +547,7 @@
       if (who && ui.recOpen === r.id) who.open = true;
       $('[data-rdel]', box).onclick = async () => {
         const n = state.assignments.filter((a) => a.recurringId === r.id).length;
-        if (!(await ask({ tone: 'danger', title: 'ลบกิจกรรม "' + r.title + '"?', msg: n ? 'ภาระงานที่สร้างไว้ ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
+        if (!(await ask({ tone: 'danger', title: 'ลบกิจกรรม "' + r.title + '"?', msg: n ? 'รายการ ' + r.title + ' ที่สร้างไว้ ' + n + ' รายการจะถูกลบออกจากตารางด้วย' : '', ok: 'ลบ' }))) return;
         TT.removeRecurring(state, r.id);
         commit();
       };
@@ -609,7 +611,7 @@
           (res.duplicate ? ' (ครูได้กลุ่มอื่นแล้ว ' + res.duplicate + ')' : '') +
           (res.notFound ? ' (ไม่พบชื่อในรายชื่อครู ' + res.notFound + ')' : '') +
           (res.noAdvisor ? ' (ไม่มีชื่อครูที่ปรึกษา ' + res.noAdvisor + ')' : '') + '</span></li>' +
-          '<li>' + ICON.check + '<span>นับเป็นภาระงานสอนของครู ' + (Number(r.len) || 1) + ' ชม./สัปดาห์</span></li>';
+          '<li>' + ICON.check + '<span>นับเป็นชั่วโมงสอนของครู ' + (Number(r.len) || 1) + ' ชม./สัปดาห์</span></li>';
     }
     return '<div class="rec" data-rec="' + esc(r.id) + '">' +
       '<div class="rec-head">' + ICON.lock + '<input data-rf="title" aria-label="ชื่อกิจกรรม" value="' + esc(r.title) + '">' +
@@ -621,10 +623,18 @@
       '<label>จำนวนคาบ<select data-rf="len">' + simpleOptions([1, 2, 3, 4].map((n) => [n, n + ' คาบ']), r.len) + '</select></label>' +
       '<label>กลุ่มเรียน<select disabled><option>ทุกกลุ่ม (' + state.groups.length + ')</option></select></label>' +
       '</div>' +
-      '<ul class="rec-status">' + status + '</ul>' +
+      '<ul class="rec-status">' + slotWarn(r, mine) + status + '</ul>' +
       (mine.length ? advisorTable(r, mine, blank.length) : '') +
       '<button class="btn primary block" data-rgo>' + (mine.length ? 'อัปเดต' : 'สร้าง') + ' ' + esc(r.title) + ' ให้ทุกกลุ่ม</button>' +
       '</div>';
+  }
+
+  /** เตือนเมื่อวัน/คาบที่ตั้งไว้ใช้ไม่ได้ (กิจกรรมจึงไม่อยู่ในตาราง) */
+  function slotWarn(r, mine) {
+    const slot = TT.recurringSlotOk(state, r);
+    return mine.length && !slot.ok
+      ? '<li class="warn">' + ICON.info + '<span><b>' + esc(r.title) + ' ยังไม่อยู่ในตาราง</b> เพราะ' + esc(slot.reason) + ' — เลือกวันอื่นด้านบน หรือเปิดวัน' + esc(r.day) + 'กลับมา แล้วระบบจะวางให้เอง</span></li>'
+      : '';
   }
 
   /** ตารางเลือกครูที่ปรึกษา (ผู้สอน Home Room) รายกลุ่ม */
@@ -671,7 +681,7 @@
     const dayChoices = state.settings.days.slice();
     const closed = (state.settings.closedDays || []).includes(r.day);
     const status =
-      '<li>' + ICON.check + '<span>ครู ' + inCount + ' คน' + (ex.size ? ' · ติ๊กออก ' + ex.size + ' คน' : '') + ' · นับเป็นภาระงาน ' + (Number(r.len) || 1) + ' ชม./สัปดาห์</span></li>' +
+      '<li>' + ICON.check + '<span>ครู ' + inCount + ' คน' + (ex.size ? ' · ติ๊กออก ' + ex.size + ' คน' : '') + ' · นับเป็นชั่วโมงสอน ' + (Number(r.len) || 1) + ' ชม./สัปดาห์</span></li>' +
       (closed ? '<li>' + ICON.check + '<span>วัน' + esc(r.day) + 'ห้ามจัดวิชาอื่น แต่กิจกรรมนี้ลงได้</span></li>' : '') +
       (mine.length ? '<li class="ok">' + ICON.check + '<span>สร้างแล้ว · เพิ่ม/ลบครู ระบบปรับให้เอง</span></li>' : '');
     return '<div class="rec" data-rec="' + esc(r.id) + '">' +
@@ -684,7 +694,7 @@
       '<label>จำนวนคาบ<select data-rf="len">' + simpleOptions([1, 2, 3, 4].map((n) => [n, n + ' คาบ']), r.len) + '</select></label>' +
       '<label>ผู้เข้าร่วม<select disabled><option>ครูทุกคน</option></select></label>' +
       '</div>' +
-      '<ul class="rec-status">' + status + '</ul>' +
+      '<ul class="rec-status">' + slotWarn(r, mine) + status + '</ul>' +
       (state.teachers.length
         ? '<details class="rec-who"><summary>เลือกครูที่เข้าร่วม (เอาติ๊กออก = ไม่มี' + esc(r.title) + ')</summary><div class="rec-tlist">' +
           state.teachers.map((t) => '<label><input type="checkbox" data-rt="' + esc(t.id) + '"' + (ex.has(t.id) ? '' : ' checked') + '> ' + esc(t.name || '(ไม่มีชื่อ)') + '</label>').join('') +
@@ -856,7 +866,7 @@
       '<button class="btn" id="sample">โหลดข้อมูลตัวอย่าง</button></div>' +
       '<div class="btns"><button class="btn" id="new-term">เริ่มภาคเรียนใหม่</button>' +
       '<button class="btn danger" id="wipe">ล้างข้อมูลทั้งหมด</button></div>' +
-      '<p class="hint">"เริ่มภาคเรียนใหม่" เก็บครู รายวิชา กลุ่มเรียน ห้อง และเงื่อนไขไว้ แต่ล้างภาระงานและตาราง</p></section>' +
+      '<p class="hint">"เริ่มภาคเรียนใหม่" เก็บครู รายวิชา กลุ่มเรียน ห้อง และเงื่อนไขไว้ แต่ล้างวิชาที่มอบให้ครูและตาราง</p></section>' +
       '</div>';
 
     $$('[data-set]', el).forEach((inp) => (inp.onchange = () => {
@@ -896,7 +906,7 @@
     };
     $('#sample', el).onclick = loadSample;
     $('#new-term', el).onclick = async () => {
-      if (!(await ask({ tone: 'danger', title: 'เริ่มภาคเรียนใหม่?', msg: 'ล้างภาระงานสอนและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้) แนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน', ok: 'ล้างและเริ่มใหม่' }))) return;
+      if (!(await ask({ tone: 'danger', title: 'เริ่มภาคเรียนใหม่?', msg: 'ล้างวิชาที่มอบให้ครูและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้) แนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน', ok: 'ล้างและเริ่มใหม่' }))) return;
       state.assignments = [];
       state.placements = [];
       commit();
@@ -1164,12 +1174,14 @@
     const n = usageCount(kind, item.id);
     const label = item.name || item.code || 'รายการนี้';
     if (kind === 'teachers') {
-      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้องจะถูกลบด้วย (กิจกรรมประจำจะเหลือไว้แบบยังไม่มีครู)' : '', ok: 'ลบ' }))) return;
+      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'วิชาที่มอบให้ครูคนนี้จะถูกลบด้วย (Home Room ของกลุ่มที่ดูแลจะยังไม่มีครู)' : '', ok: 'ลบ' }))) return;
       state.assignments.forEach((a) => { if (a.recurringId && a.teacherId === item.id && !TT.isTeacherActivity(state, a)) a.teacherId = ''; });
       state.assignments = state.assignments.filter((a) => a.teacherId !== item.id);
       state.settings.recurring.forEach((r) => { if (r.exclude) r.exclude = r.exclude.filter((id) => id !== item.id); });
+      // ชื่อครูที่ปรึกษาในข้อมูลกลุ่มที่เป็นครูคนนี้ → ว่าง (กลุ่มจะขึ้นว่ายังไม่มีครูที่ปรึกษา)
+      state.groups.forEach((g) => { if ((TT.findTeacherByName(state, g.advisor) || {}).id === item.id) g.advisor = ''; });
     } else if (kind === 'subjects') {
-      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้อง ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
+      if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'วิชานี้ที่มอบให้ครูไว้ ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
       state.assignments = state.assignments.filter((a) => a.subjectId !== item.id);
     } else {
       if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', ok: 'ลบ' }))) return;
@@ -1285,7 +1297,7 @@
     ta.focus();
   }
 
-  /* ------------------------------ ภาระงานสอน ------------------------------ */
+  /* ------------------------------ มอบวิชาให้ครู ------------------------------ */
 
   /**
    * มอบวิชาให้ครู: ซ้าย = วิชาที่ยังไม่มีครู · ขวา = การ์ดครู
@@ -1307,7 +1319,7 @@
       '<label class="search">' + ICON.search + '<input type="search" id="pool-q" aria-label="ค้นหาวิชา" placeholder="ค้นหารหัส/ชื่อวิชา หรือกลุ่มเรียน (รวมคลังรายวิชา)" value="' + esc(ui.listFilter) + '"></label>' +
       '<div id="pool-list" class="pool-list"></div></section>' +
       '<section class="teachers"><div class="toolbar"><label class="search">' + ICON.search + '<input type="search" id="t-q" aria-label="ค้นหาครู" placeholder="ค้นหาครู" value="' + esc(ui.teacherFilter || '') + '"></label>' +
-      '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางภาระงานจาก Excel</button></div>' +
+      '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางรายการวิชา-ครูจาก Excel</button></div>' +
       '<div class="tgrid" id="tgrid"></div></section>' +
       '</div>' +
       '<datalist id="subj-list">' + state.subjects.slice().sort((a, b) => codeKey(a.code).localeCompare(codeKey(b.code), 'th', { numeric: true })).map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '"></option>').join('') +
@@ -1315,7 +1327,7 @@
 
     $('#b-plan', el).onclick = openPlanImport;
     $('#b-teacher', el).onclick = () => { ui.dataTab = 'teachers'; go('data'); $('#dadd').click(); };
-    $('#b-paste', el).onclick = () => openPaste('ภาระงานสอน',
+    $('#b-paste', el).onclick = () => openPaste('รายการวิชา-ครู',
       'คอลัมน์: ชื่อครู | รหัสวิชา (หรือชื่อกิจกรรม) | รหัสกลุ่มเรียน (เรียนรวมหลายกลุ่มคั่นด้วย , ) | ห้อง | รูปแบบคาบ (เว้นว่างได้) | Block Course (ใส่ "ใช่") | ทั้งเทอม (ใส่ "ใช่")',
       importAssignments);
     $('#pool-q', el).oninput = (e) => { ui.listFilter = e.target.value; fillPool(); };
@@ -1693,7 +1705,7 @@
     }
     commit();
     if (problems.length) ask({ tone: 'info', title: 'นำเข้า ' + added + ' รายการ แต่มีบางแถวที่ต้องตรวจ', items: [...new Set(problems)].slice(0, 20), cancel: false });
-    return 'เพิ่มภาระงาน ' + added + ' รายการ';
+    return 'เพิ่มรายการวิชา-ครู ' + added + ' รายการ';
   }
 
   /* -------------------------------- จัดตาราง -------------------------------- */
@@ -2060,7 +2072,7 @@
     const { assignmentId, blockIndex } = parseKey(key);
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
-    if (a.recurringId) { toast('กิจกรรมประจำย้ายได้ที่หน้าเงื่อนไข', true); return; }
+    if (a.recurringId) { toast('กิจกรรมประจำ: เปลี่ยนวัน/เวลาได้จากแถบด้านบนหลังคลิกก้อน หรือที่ ตั้งค่า → เงื่อนไข', true); return; }
     // คลิก/วางที่ไหนก็ได้ในช่วงของก้อน ระบบเลื่อนคาบเริ่มให้พอดี (เช่น ก้อน 3 คาบ คลิก 20:00 → 19:00–22:00)
     const snapped = TT.snapStart(state, a, blockIndex, day, start);
     if (snapped == null) { toast(TT.checkPlacement(state, a, blockIndex, day, start).reasons[0], true); return; }
@@ -2323,7 +2335,7 @@
     const mine = state.assignments.filter((a) => TT.isTerm(a) && v.match(a, ent.id));
     let html = '<section class="card"><div class="card-head"><h2>วิชาทั้งเทอม</h2><span class="muted">' + mine.length + ' วิชา</span></div>';
     if (!mine.length) {
-      html += '<p class="hint">ยังไม่มีวิชาที่จัดแบบทั้งเทอม ตั้งได้ที่หน้า <b>ภาระงานสอน</b> → ช่อง "การจัด" เลือก "ทั้งเทอม"</p>';
+      html += '<p class="hint">ยังไม่มีวิชาที่จัดแบบทั้งเทอม ตั้งได้ที่ <b>มอบวิชาให้ครู</b> → คลิกวิชาในการ์ดครู → ช่อง "การจัด" เลือก "ทั้งเทอม"</p>';
     } else {
       html += mine.map((a) => {
         const st = TT.termStatus(state, a, idx.subjects);
