@@ -66,12 +66,13 @@ test('sanitize ลบคาบที่คร่อมพัก และคา�
   assert.strictEqual(TT.sanitizePlacements(s), 2);
 });
 
-test('สรุปตารางสอนครูจากข้อมูลตัวอย่างตรงกับ PDF (ท13 ป8 น16 ช28)', () => {
+test('สรุปตารางสอนครูจากข้อมูลตัวอย่างตรงกับ PDF (ท13 ป8 น16 ช28 + PLC 2)', () => {
   const s = sampleState(TT);
   const t = s.teachers[0];
   const sum = TT.teacherSummary(s, t.id);
-  assert.deepStrictEqual(sum.totals, { t: 13, p: 8, n: 16, h: 28 });
-  assert.strictEqual(sum.scheduled, 28);
+  assert.deepStrictEqual(sum.totals, { t: 13, p: 8, n: 16, h: 30 });
+  assert.strictEqual(sum.scheduled, 30);
+  assert.strictEqual(sum.subjects.find((x) => x.code === 'PLC').h, 2);
   assert.strictEqual(sum.subjects.find((x) => x.code === '20000-1301').h, 9);
   assert.strictEqual(TT.findConflicts(s).list.length, 0);
 });
@@ -88,7 +89,9 @@ test('จัดอัตโนมัติ: วางครบ ไม่ชน �
   const bc = s.assignments.find((a) => a.blockCourse);
   const pl = s.placements.find((p) => p.assignmentId === bc.id);
   assert.notStrictEqual(pl.day, 0, 'ครูช่างยนต์ไม่ว่างวันจันทร์คาบ 1-3 → Block Course 7 คาบลงวันจันทร์ไม่ได้');
-  assert.ok(s.placements.every((p) => p.day !== 4), 'วันศุกร์ห้ามจัด');
+  const rec = new Set(s.assignments.filter((a) => a.recurringId).map((a) => a.id));
+  assert.ok(s.placements.every((p) => p.day !== 4 || rec.has(p.assignmentId)), 'วันศุกร์ห้ามจัด (มีแค่ PLC)');
+  assert.ok(s.placements.some((p) => p.day === 4), 'PLC วันศุกร์');
 });
 
 test('วันห้ามจัดและช่วงห้ามจัด', () => {
@@ -405,4 +408,41 @@ test('ข้อความชนกันบอกว่าชนกับอ�
   const msgs = TT.findConflicts(s).list.map((c) => c.message);
   assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 14:00–16:00')), msgs.join(' | '));
   assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 13:00–15:00')), msgs.join(' | '));
+});
+
+test('PLC: ครูทุกคนยกเว้นที่ติ๊กออก วันศุกร์ 17:00–19:00 ลงได้แม้วันศุกร์ห้ามจัด', () => {
+  const s = TT.normalizeState(TT.emptyState());
+  s.teachers.push({ id: 't1', name: 'ครู ก', unavailable: [] }, { id: 't2', name: 'ครู ข', unavailable: [] }, { id: 't3', name: 'ครู ค', unavailable: [] });
+  const plc = s.settings.recurring.find((r) => r.scope === 'teacher');
+  assert.ok(plc, 'มี PLC เป็นค่าเริ่มต้น');
+  assert.deepStrictEqual(s.settings.closedDays, ['ศุกร์']);
+  plc.exclude = ['t3'];
+  const res = TT.applyRecurring(s, plc.id);
+  assert.strictEqual(res.error, '');
+  assert.strictEqual(res.teachers, 2);
+  const mine = s.assignments.filter((a) => a.recurringId === plc.id);
+  assert.deepStrictEqual(mine.map((a) => a.teacherId).sort(), ['t1', 't2']);
+  const fri = s.settings.days.indexOf('ศุกร์');
+  assert.ok(s.placements.every((p) => p.day === fri && p.start === 9 && p.locked));
+  assert.strictEqual(TT.findConflicts(s).list.length, 0, 'ไม่นับว่าผิดวันห้ามจัด');
+  assert.strictEqual(TT.checkData(s).filter((i) => i.type === 'no-group').length, 0);
+  // ใบตารางสอน: แถว PLC ชื่อเต็ม 2 ชม.
+  const sum = TT.teacherSummary(s, 't1');
+  const row = sum.subjects.find((x) => x.code === 'PLC');
+  assert.strictEqual(row.name, 'ชุมชนการเรียนรู้ทางวิชาชีพ (PLC)');
+  assert.strictEqual(row.h, 2);
+  // เอาครูกลับเข้า แล้วสร้างซ้ำ: ไม่ซ้ำ
+  plc.exclude = [];
+  TT.applyRecurring(s, plc.id);
+  TT.applyRecurring(s, plc.id);
+  assert.strictEqual(s.assignments.filter((a) => a.recurringId === plc.id).length, 3);
+  assert.strictEqual(s.placements.length, 3);
+  // ข้อมูลเดิมที่ไม่มี PLC: เพิ่มให้ครั้งเดียว ลบแล้วไม่กลับมา
+  const old = TT.emptyState();
+  old.settings.recurring = [old.settings.recurring[0]];
+  delete old.settings.plcAdded;
+  const n1 = TT.normalizeState(old);
+  assert.ok(n1.settings.recurring.some((r) => r.id === 'rec_plc'));
+  n1.settings.recurring = n1.settings.recurring.filter((r) => r.id !== 'rec_plc');
+  assert.ok(!TT.normalizeState(n1).settings.recurring.some((r) => r.id === 'rec_plc'));
 });

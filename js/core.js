@@ -34,6 +34,17 @@
     return { id: 'rec_homeroom', title: 'Home Room', name: HOMEROOM_NAME, day: 'พุธ', start: 1, len: 1 };
   }
 
+  /** PLC: กิจกรรมของครูทุกคน (ยกเว้นที่ติ๊กออก) วันศุกร์ 17:00–19:00 วางได้แม้เป็นวันห้ามจัด */
+  function defaultPLC() {
+    return { id: 'rec_plc', title: 'PLC', name: 'ชุมชนการเรียนรู้ทางวิชาชีพ (PLC)', scope: 'teacher', day: 'ศุกร์', start: 9, len: 2, exclude: [] };
+  }
+
+  /** กิจกรรมประจำของครู (ไม่ผูกกับกลุ่มเรียน) */
+  function isTeacherActivity(state, a) {
+    const rec = a && a.recurringId && (state.settings.recurring || []).find((r) => r.id === a.recurringId);
+    return !!(rec && rec.scope === 'teacher');
+  }
+
   function emptyState() {
     return {
       version: 1,
@@ -47,7 +58,8 @@
         signers: { curriculumHead: '', viceDirector: '', director: '' },
         closedDays: ['ศุกร์'],
         blocked: [],
-        recurring: [defaultRecurring()],
+        recurring: [defaultRecurring(), defaultPLC()],
+        plcAdded: true,
         weeks: 18,
         levelWeeks: { 'ปวช.': 18, 'ปวส.': 15 },
         checkRooms: false,
@@ -74,6 +86,11 @@
     if (!Array.isArray(out.settings.days) || !out.settings.days.length) out.settings.days = base.settings.days;
     for (const k of ['closedDays', 'blocked', 'recurring']) {
       if (!Array.isArray(out.settings[k])) out.settings[k] = base.settings[k];
+    }
+    // ข้อมูลเดิมที่ยังไม่มี PLC: เพิ่มให้ครั้งเดียว (ถ้าลบทิ้งภายหลังจะไม่เพิ่มกลับมา)
+    if (!(s.settings || {}).plcAdded) {
+      if (!out.settings.recurring.some((r) => r.scope === 'teacher')) out.settings.recurring.push(defaultPLC());
+      out.settings.plcAdded = true;
     }
     out.settings.levelWeeks = Object.assign({}, base.settings.levelWeeks, out.settings.levelWeeks || {});
     for (const k of Object.keys(out.settings.levelWeeks)) out.settings.levelWeeks[k] = Math.max(1, Math.min(40, Number(out.settings.levelWeeks[k]) || 18));
@@ -518,7 +535,7 @@
     if (blocked.size) {
       for (const pl of state.placements) {
         const a = idx.assignments.get(pl.assignmentId);
-        if (!a) continue;
+        if (!a || a.recurringId) continue; // กิจกรรมประจำตั้งวัน/เวลาไว้เอง (เช่น PLC วันศุกร์) ไม่นับว่าผิด
         const len = assignmentBlocks(a, idx.subjects)[pl.blockIndex] || 0;
         const key = placementKey(a.id, pl.blockIndex);
         const rk = resourceKeys(a, idx)[0] || '';
@@ -1035,7 +1052,7 @@
 
     // 5) รายการที่ไม่มีกลุ่มเรียน / ข้อมูลอื่นซ้ำ
     for (const a of state.assignments) {
-      if (!(a.groupIds || []).length) {
+      if (!(a.groupIds || []).length && !isTeacherActivity(state, a)) {
         const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
         issues.push({ level: 'warn', type: 'no-group', title: 'ยังไม่ได้เลือกกลุ่มเรียน: ' + (sj ? sj.code + ' ' + sj.name : a.title || 'ไม่มีชื่อ'),
           detail: 'ผู้สอน: ' + ((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู'), assignmentIds: [a.id], teacherId: a.teacherId });
@@ -1159,11 +1176,12 @@
     const rec = state.settings.recurring.find((r) => r.id === recId);
     if (!rec) return { error: 'ไม่พบกิจกรรม' };
     const day = state.settings.days.indexOf(rec.day);
-    if (day < 0) return { error: 'วัน' + rec.day + 'ไม่ได้เปิดสอน' };
-    if ((state.settings.closedDays || []).includes(rec.day)) return { error: 'วัน' + rec.day + 'ตั้งเป็นห้ามจัด' };
+    if (day < 0) return { error: 'วัน' + rec.day + 'ไม่ได้แสดงในตาราง' };
+    if (rec.scope !== 'teacher' && (state.settings.closedDays || []).includes(rec.day)) return { error: 'วัน' + rec.day + 'ตั้งเป็นห้ามจัด' };
     const len = Math.max(1, Number(rec.len) || 1);
     const start = Number(rec.start) || 1;
     if (!canSpan(periods(state.settings), start, len, true)) return { error: 'คาบที่เลือกเกินคาบสุดท้าย' };
+    if (rec.scope === 'teacher') return applyTeacherActivity(state, rec, day, start, len);
 
     const title = normName(rec.title).toLowerCase();
     const byGroup = new Map();
@@ -1211,6 +1229,36 @@
       state.placements.push({ assignmentId: a.id, blockIndex: 0, day, start, locked: true });
     }
     state.placements = state.placements.filter((p) => !removedIds.has(p.assignmentId));
+    return res;
+  }
+
+  /** กิจกรรมของครู (เช่น PLC): ครูทุกคนยกเว้นที่ติ๊กออก 1 รายการต่อครู ล็อกไว้ */
+  function applyTeacherActivity(state, rec, day, start, len) {
+    const exclude = new Set(rec.exclude || []);
+    const want = state.teachers.filter((t) => !exclude.has(t.id));
+    const byTeacher = new Map();
+    const drop = new Set();
+    for (const a of state.assignments) {
+      if (a.recurringId !== rec.id) continue;
+      if (a.teacherId && !byTeacher.has(a.teacherId) && want.some((t) => t.id === a.teacherId)) byTeacher.set(a.teacherId, a);
+      else drop.add(a.id);
+    }
+    state.assignments = state.assignments.filter((a) => !drop.has(a.id));
+    state.placements = state.placements.filter((p) => !drop.has(p.assignmentId));
+    const res = { teachers: want.length, excluded: state.teachers.length - want.length, created: 0, groups: 0, withTeacher: want.length, error: '' };
+    for (const t of want) {
+      let a = byTeacher.get(t.id);
+      if (!a) {
+        a = { id: uid('a'), teacherId: t.id, subjectId: null, title: rec.title, groupIds: [], roomId: null, blocks: '', blockCourse: false, recurringId: rec.id };
+        state.assignments.push(a);
+        res.created++;
+      }
+      a.title = rec.title;
+      a.blocks = String(len);
+      a.groupIds = [];
+      state.placements = state.placements.filter((p) => p.assignmentId !== a.id);
+      state.placements.push({ assignmentId: a.id, blockIndex: 0, day, start, locked: true });
+    }
     return res;
   }
 
@@ -1388,6 +1436,8 @@
     allBlocks,
     cellKey,
     checkPlacement,
+    defaultPLC,
+    isTeacherActivity,
     buildOccupancy,
     findConflicts,
     teacherSummary,

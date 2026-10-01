@@ -47,9 +47,21 @@
   }
 
   function commit() {
+    syncTeacherActivities();
     TT.sanitizePlacements(state);
     save();
     render();
+  }
+
+  /** กิจกรรมของครู (PLC) ที่สร้างแล้ว: เพิ่ม/ลบตามรายชื่อครูให้อัตโนมัติ */
+  function syncTeacherActivities() {
+    for (const r of state.settings.recurring) {
+      if (r.scope !== 'teacher' || !state.assignments.some((a) => a.recurringId === r.id)) continue;
+      const ex = new Set(r.exclude || []);
+      const have = new Set(state.assignments.filter((a) => a.recurringId === r.id).map((a) => a.teacherId));
+      const want = state.teachers.filter((t) => !ex.has(t.id)).map((t) => t.id);
+      if (want.length !== have.size || want.some((id) => !have.has(id))) TT.applyRecurring(state, r.id);
+    }
   }
 
   function isEmpty() {
@@ -245,7 +257,8 @@
     const terms = state.assignments.filter(TT.isTerm).map((a) => TT.termStatus(state, a));
     const termLeft = terms.reduce((n, x) => n + x.remaining, 0);
     const conflicts = TT.findConflicts(state).list.length;
-    const hrGenerated = state.assignments.some((a) => a.recurringId);
+    const recPending = s.recurring.filter((r) => !state.assignments.some((a) => a.recurringId === r.id) &&
+      (r.scope === 'teacher' ? state.teachers.length : state.groups.length));
     const done1 = state.groups.length && state.subjects.length && state.teachers.length;
     const done2 = done1 && state.assignments.length && !unassigned;
     const done3 = done2 && totalH && placedH >= totalH && !termLeft && !conflicts;
@@ -272,7 +285,7 @@
           ? 'มอบแล้ว <b>' + (state.assignments.length - unassigned) + '/' + state.assignments.length + '</b> วิชา' + (unassigned ? ' · ยังไม่มีครู <b class="warn">' + unassigned + '</b> วิชา' : ' · ครบแล้ว')
           : 'ยังไม่มีรายวิชาให้มอบ (ทำขั้นที่ 1 ก่อน)',
         '<button class="btn' + (current === 2 ? ' primary' : '') + '" data-go="assign">มอบวิชาให้ครู →</button>' +
-        (state.groups.length && !hrGenerated && s.recurring.length ? '<button class="btn" id="h-hr">สร้าง Home Room ทุกกลุ่ม (' + esc(s.recurring[0].day) + ' คาบ ' + s.recurring[0].start + ')</button>' : '')) +
+        (recPending.length ? '<button class="btn" id="h-hr">สร้าง ' + recPending.map((r) => esc(r.title) + ' (' + esc(r.day) + ' คาบ ' + r.start + ')').join(' และ ') + '</button>' : '')) +
       step(3, done3, 'จัดตาราง',
         totalH ? 'ตารางรายสัปดาห์ จัดแล้ว <b>' + placedH + '/' + totalH + '</b> ชม.' + (terms.length ? ' · ตารางทั้งเทอม ' + (termLeft ? 'เหลือ <b>' + termLeft + '</b> ชม.' : 'ครบ') : '') +
           (conflicts ? ' · <span class="warn">ชนกัน ' + conflicts + ' จุด</span>' : '') : 'ยังไม่มีวิชาให้จัด',
@@ -290,10 +303,14 @@
     on('#h-teachers', () => { ui.dataTab = 'teachers'; ui.dataFilter = ''; go('data'); });
     on('#h-sample', loadSample);
     on('#h-hr', () => {
-      const r = TT.applyRecurring(state, s.recurring[0].id);
-      if (r.error) { toast(r.error, true); return; }
+      const msgs = [];
+      for (const rec of recPending) {
+        const r = TT.applyRecurring(state, rec.id);
+        if (r.error) { toast(rec.title + ': ' + r.error, true); return; }
+        msgs.push(rec.scope === 'teacher' ? rec.title + ' ครู ' + r.teachers + ' คน' : rec.title + ' ' + r.groups + ' กลุ่ม (มีครู ' + r.withTeacher + ')');
+      }
       commit();
-      toast('สร้าง ' + s.recurring[0].title + ' ' + r.groups + ' กลุ่ม (มีครู ' + r.withTeacher + ')');
+      toast('สร้าง ' + msgs.join(' · '));
     });
     on('#h-auto', () => {
       const res = TT.autoSchedule(state, { timeLimit: 4000 });
@@ -493,8 +510,19 @@
         const res = TT.applyRecurring(state, r.id);
         if (res.error) { toast(res.error, true); return; }
         commit();
-        toast(r.title + ' ครบ ' + res.groups + ' กลุ่ม · มีครู ' + res.withTeacher + ' กลุ่ม · ว่าง ' + (res.groups - res.withTeacher) + ' กลุ่ม');
+        toast(r.scope === 'teacher' ? r.title + ' ครู ' + res.teachers + ' คน' + (res.excluded ? ' (ติ๊กออก ' + res.excluded + ')' : '')
+          : r.title + ' ครบ ' + res.groups + ' กลุ่ม · มีครู ' + res.withTeacher + ' กลุ่ม · ว่าง ' + (res.groups - res.withTeacher) + ' กลุ่ม');
       };
+      $$('[data-rt]', box).forEach((cb) => (cb.onchange = () => {
+        const ex = new Set(r.exclude || []);
+        if (cb.checked) ex.delete(cb.dataset.rt); else ex.add(cb.dataset.rt);
+        r.exclude = [...ex];
+        if (generated()) TT.applyRecurring(state, r.id);
+        ui.recOpen = r.id;
+        commit();
+      }));
+      const who = $('.rec-who', box);
+      if (who && ui.recOpen === r.id) who.open = true;
       $('[data-rdel]', box).onclick = async () => {
         const n = state.assignments.filter((a) => a.recurringId === r.id).length;
         if (!(await ask({ tone: 'danger', title: 'ลบกิจกรรม "' + r.title + '"?', msg: n ? 'ภาระงานที่สร้างไว้ ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
@@ -532,6 +560,7 @@
   }
 
   function recurringCard(r, perOpts) {
+    if (r.scope === 'teacher') return teacherActivityCard(r, perOpts);
     const s = state.settings;
     const mine = state.assignments.filter((a) => a.recurringId === r.id);
     const blank = mine.filter((a) => !a.teacherId);
@@ -571,15 +600,48 @@
       '</div>';
   }
 
+  /** การ์ดกิจกรรมของครู (PLC): ครูทุกคน ยกเว้นที่ติ๊กออก */
+  function teacherActivityCard(r, perOpts) {
+    const mine = state.assignments.filter((a) => a.recurringId === r.id);
+    const ex = new Set(r.exclude || []);
+    const inCount = state.teachers.filter((t) => !ex.has(t.id)).length;
+    const dayChoices = state.settings.days.slice();
+    const closed = (state.settings.closedDays || []).includes(r.day);
+    const status =
+      '<li>' + ICON.check + '<span>ครู ' + inCount + ' คน' + (ex.size ? ' · ติ๊กออก ' + ex.size + ' คน' : '') + ' · นับเป็นภาระงาน ' + (Number(r.len) || 1) + ' ชม./สัปดาห์</span></li>' +
+      (closed ? '<li>' + ICON.check + '<span>วัน' + esc(r.day) + 'ห้ามจัดวิชาอื่น แต่กิจกรรมนี้ลงได้</span></li>' : '') +
+      (mine.length ? '<li class="ok">' + ICON.check + '<span>สร้างแล้ว · เพิ่ม/ลบครู ระบบปรับให้เอง</span></li>' : '');
+    return '<div class="rec" data-rec="' + esc(r.id) + '">' +
+      '<div class="rec-head">' + ICON.lock + '<input data-rf="title" aria-label="ชื่อกิจกรรม" value="' + esc(r.title) + '">' +
+      (mine.length ? '<span class="badge on">ใช้งานอยู่</span>' : '<span class="badge">ยังไม่ได้สร้าง</span>') +
+      '<button class="btn icon danger" data-rdel aria-label="ลบกิจกรรม">' + ICON.x + '</button></div>' +
+      '<div class="rec-fields">' +
+      '<label>วัน<select data-rf="day">' + simpleOptions(dayChoices.map((d) => [d, 'ทุกวัน' + d]), r.day) + '</select></label>' +
+      '<label>เริ่ม<select data-rf="start">' + simpleOptions(perOpts, r.start) + '</select></label>' +
+      '<label>จำนวนคาบ<select data-rf="len">' + simpleOptions([1, 2, 3, 4].map((n) => [n, n + ' คาบ']), r.len) + '</select></label>' +
+      '<label>ผู้เข้าร่วม<select disabled><option>ครูทุกคน</option></select></label>' +
+      '</div>' +
+      '<ul class="rec-status">' + status + '</ul>' +
+      (state.teachers.length
+        ? '<details class="rec-who"><summary>เลือกครูที่เข้าร่วม (เอาติ๊กออก = ไม่มี' + esc(r.title) + ')</summary><div class="rec-tlist">' +
+          state.teachers.map((t) => '<label><input type="checkbox" data-rt="' + esc(t.id) + '"' + (ex.has(t.id) ? '' : ' checked') + '> ' + esc(t.name || '(ไม่มีชื่อ)') + '</label>').join('') +
+          '</div></details>'
+        : '<p class="hint">ยังไม่มีรายชื่อครู</p>') +
+      '<button class="btn primary block" data-rgo>' + (mine.length ? 'อัปเดต' : 'สร้าง') + ' ' + esc(r.title) + ' ให้ครู ' + inCount + ' คน</button>' +
+      '</div>';
+  }
+
   async function setDayMode(d, mode) {
     const s = state.settings;
     const cur = dayMode(d);
     if (cur === mode) return;
     const di = s.days.indexOf(d);
     if (mode === 'closed' && di >= 0) {
-      const n = state.placements.filter((p) => p.day === di).length;
+      // กิจกรรมของครู (เช่น PLC) อยู่ในวันห้ามจัดได้
+      const keep = (p) => p.day !== di || TT.isTeacherActivity(state, state.assignments.find((a) => a.id === p.assignmentId));
+      const n = state.placements.filter((p) => !keep(p)).length;
       if (n && !(await ask({ title: 'ห้ามจัดวัน' + d + '?', msg: 'วัน' + d + 'มีคาบที่จัดไว้ ' + n + ' ก้อน จะถูกนำออกจากตาราง', ok: 'ทำต่อ' }))) return render();
-      state.placements = state.placements.filter((p) => p.day !== di);
+      state.placements = state.placements.filter(keep);
     }
     const next = TT.ALL_DAYS.filter((x) => (x === d ? mode !== 'hidden' : s.days.includes(x)));
     if (!next.length) { toast('ต้องมีอย่างน้อย 1 วัน', true); return render(); }
@@ -909,8 +971,9 @@
     const label = item.name || item.code || 'รายการนี้';
     if (kind === 'teachers') {
       if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้องจะถูกลบด้วย (กิจกรรมประจำจะเหลือไว้แบบยังไม่มีครู)' : '', ok: 'ลบ' }))) return;
-      state.assignments.forEach((a) => { if (a.recurringId && a.teacherId === item.id) a.teacherId = ''; });
+      state.assignments.forEach((a) => { if (a.recurringId && a.teacherId === item.id && !TT.isTeacherActivity(state, a)) a.teacherId = ''; });
       state.assignments = state.assignments.filter((a) => a.teacherId !== item.id);
+      state.settings.recurring.forEach((r) => { if (r.exclude) r.exclude = r.exclude.filter((id) => id !== item.id); });
     } else if (kind === 'subjects') {
       if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', msg: n ? 'ภาระงานสอนที่เกี่ยวข้อง ' + n + ' รายการจะถูกลบด้วย' : '', ok: 'ลบ' }))) return;
       state.assignments = state.assignments.filter((a) => a.subjectId !== item.id);
@@ -918,7 +981,7 @@
       if (!(await ask({ tone: 'danger', title: 'ลบ "' + label + '"?', ok: 'ลบ' }))) return;
       if (kind === 'groups') {
         state.assignments.forEach((a) => (a.groupIds = a.groupIds.filter((g) => g !== item.id)));
-        state.assignments = state.assignments.filter((a) => !(a.recurringId && !a.groupIds.length));
+        state.assignments = state.assignments.filter((a) => !(a.recurringId && !a.groupIds.length && !TT.isTeacherActivity(state, a)));
       }
       if (kind === 'rooms') state.assignments.forEach((a) => { if (a.roomId === item.id) a.roomId = null; });
       if (kind === 'departments') state.teachers.forEach((t) => { if (t.departmentId === item.id) t.departmentId = ''; });

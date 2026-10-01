@@ -120,6 +120,9 @@
 
     // Home Room ทุกวันพุธ คาบ 1 ของทุกกลุ่ม (ใช้ภาระงาน Home Room ที่มีอยู่แล้วต่อ)
     TT.applyRecurring(s, s.settings.recurring[0].id);
+    // PLC ครูทุกคน วันศุกร์ 17:00–19:00 (วันศุกร์ห้ามจัดวิชาอื่น)
+    const plc = s.settings.recurring.find((r) => r.scope === 'teacher');
+    if (plc) TT.applyRecurring(s, plc.id);
 
     TT.fillTerm(s, langA.id, 1);
     TT.fillTerm(s, osA.id, 3);
