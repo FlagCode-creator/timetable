@@ -405,9 +405,18 @@ test('ข้อความชนกันบอกว่าชนกับอ�
   assert.strictEqual(chk.ok, false);
   assert.ok(chk.reasons.some((r) => r.includes('20000-1301 พุธ 13:00–15:00')), chk.reasons.join(' | '));
   TT.addSession(s, 'a', 1, wed, { start: 6, len: 2 });
-  const msgs = TT.findConflicts(s).list.map((c) => c.message);
-  assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 14:00–16:00')), msgs.join(' | '));
-  assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 13:00–15:00')), msgs.join(' | '));
+  const fc = TT.findConflicts(s);
+  // 1 คู่ที่ชนกัน = 1 รายการ บอกครบทั้ง 2 ฝั่ง ครูและกลุ่มที่โดน และสัปดาห์
+  assert.strictEqual(fc.list.length, 1, fc.list.map((c) => c.message).join(' | '));
+  const m = fc.list[0].message;
+  assert.ok(m.includes('20000-1301 พุธ 13:00–15:00') && m.includes('20000-1301 พุธ 14:00–16:00'), m);
+  assert.ok(m.includes('ครู ครูเอ') && m.includes('กลุ่มเรียน ปวช.2 ช่างเชื่อม') && m.includes('สัปดาห์ที่ 1'), m);
+  assert.strictEqual(fc.list[0].week, 1);
+  assert.strictEqual(fc.list[0].keys.length, 2);
+  // แต่ละคาบ (กล่องแดงตอนเลือก) ยังบอกว่าชนกับอีกก้อน
+  const ids = s.sessions.map((x) => 'S:' + x.id);
+  assert.ok([...fc.byPlacement.get(ids[0])].some((x) => x.includes('ซ้อนกับ 20000-1301 พุธ 14:00–16:00')));
+  assert.ok([...fc.byPlacement.get(ids[1])].some((x) => x.includes('ซ้อนกับ 20000-1301 พุธ 13:00–15:00')));
 });
 
 test('PLC: ครูทุกคนยกเว้นที่ติ๊กออก วันศุกร์ 17:00–19:00 ลงได้แม้วันศุกร์ห้ามจัด', () => {

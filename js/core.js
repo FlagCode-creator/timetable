@@ -481,13 +481,32 @@
     const idx = indexState(state);
     const occ = buildOccupancy(state, idx);
     const desc = describer(state, idx);
-    // ข้อความของแต่ละรายการบอกว่าชนกับอะไร วันไหน เวลาเท่าไร
-    const each = (keys, others, fmt, day, p, rk) => keys.forEach((k) => {
-      const o = others.filter((x) => x !== k);
-      if (o.length) add([k], fmt(o.map(desc).join(', ')), day, p, rk);
-    });
     const byPlacement = new Map();
     const list = new Map();
+    const mark = (k, msg) => {
+      if (!byPlacement.has(k)) byPlacement.set(k, new Set());
+      byPlacement.get(k).add(msg);
+    };
+    // การชนกันระหว่างคาบ: 1 คู่ = 1 รายการ (รวมครู/กลุ่มที่โดนไว้ในรายการเดียว)
+    const pairs = new Map();
+    const addPair = (keys, day, p, rk, week) => {
+      const ks = [...new Set(keys)].sort();
+      const pk = day + '@' + ks.join(',');
+      if (!pairs.has(pk)) pairs.set(pk, { day, periods: [], ks, names: [], resource: rk, resources: [], week });
+      const it = pairs.get(pk);
+      if (!it.resources.includes(rk)) it.resources.push(rk);
+      if (!it.periods.includes(p)) it.periods.push(p);
+      const nm = resourceName(rk, idx);
+      if (!it.names.includes(nm)) it.names.push(nm);
+    };
+    // ข้อความของแต่ละคาบบอกว่าชนกับอะไร วันไหน เวลาเท่าไร
+    const each = (keys, others, fmt, day, p, rk, week) => {
+      keys.forEach((k) => {
+        const o = others.filter((x) => x !== k);
+        if (o.length) mark(k, fmt(o.map(desc).join(', ')));
+      });
+      addPair(keys.concat(others), day, p, rk, week);
+    };
     const add = (keys, msg, day, p, resource) => {
       for (const k of keys) {
         if (!byPlacement.has(k)) byPlacement.set(k, new Set());
@@ -515,11 +534,11 @@
       for (const [k, ids] of m) {
         const [w, d, p] = k.split('|').map(Number);
         const keys = ids.map((id) => 'S:' + id);
-        if (ids.length > 1) each(keys, keys, (o) => resourceName(rk, idx) + ': ซ้อนกับ ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk);
+        if (ids.length > 1) each(keys, keys, (o) => resourceName(rk, idx) + ': ซ้อนกับ ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk, w);
         const wk = weekly && weekly.get(cellKey(d, p));
         if (wk) {
-          each(keys, wk, (o) => resourceName(rk, idx) + ': ชนกับตารางรายสัปดาห์ ' + o, d, p, rk);
-          each(wk, keys, (o) => resourceName(rk, idx) + ': ชนกับตารางทั้งเทอม ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk);
+          each(keys, wk, (o) => resourceName(rk, idx) + ': ชนกับตารางรายสัปดาห์ ' + o, d, p, rk, w);
+          each(wk, keys, (o) => resourceName(rk, idx) + ': ชนกับตารางทั้งเทอม ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk, w);
         }
         if (un && un.has(cellKey(d, p))) add(keys, resourceName(rk, idx) + ' ไม่ว่าง (ทั้งเทอม สัปดาห์ที่ ' + w + ')', d, p, rk);
       }
@@ -546,6 +565,14 @@
       }
     }
     const items = [...list.values()].map((x) => ({ ...x, keys: [...x.keys], periods: x.periods.sort((a, b) => a - b) }));
+    for (const x of pairs.values()) {
+      const term = x.ks.some((k) => k.startsWith('S:'));
+      const label = (k) => desc(k) + (k.startsWith('S:') ? '' : term ? ' (ทุกสัปดาห์)' : '');
+      items.push({
+        message: x.names.join(' · ') + ': ' + x.ks.map(label).join(' ซ้อนกับ ') + (term ? ' — ตารางทั้งเทอม สัปดาห์ที่ ' + x.week : ''),
+        resource: x.resource, resources: x.resources, day: x.day, periods: x.periods.sort((a, b) => a - b), keys: x.ks, week: term ? x.week : null,
+      });
+    }
     items.sort((a, b) => a.day - b.day || a.periods[0] - b.periods[0]);
     return { byPlacement, list: items };
   }

@@ -1564,11 +1564,28 @@
     if (tw) tw.onclick = () => { ui.assignTeacher = ent.id; ui.listFilter = ''; go('assign'); };
     const sc = $('#show-conf', el);
     if (sc) sc.onclick = () => { ui.showConflicts = !ui.showConflicts; render(); };
-    $$('[data-res]', el).forEach((b) => (b.onclick = () => {
-      const [t, id] = [b.dataset.res[0], b.dataset.res.slice(2)];
-      ui.view = t === 't' ? 'teacher' : t === 'g' ? 'group' : 'room';
-      ui.viewId = id;
+    // คลิกจุดที่ชน: เปิดครู/กลุ่มนั้น สลับโหมดตาราง เลือกคาบ และเลื่อนไปสัปดาห์ที่ชน
+    $$('[data-ci]', el).forEach((b) => (b.onclick = () => {
+      const c = conflicts.list[Number(b.dataset.ci)];
+      if (!c) return;
+      // อยู่ที่ครู/กลุ่มที่เกี่ยวข้องอยู่แล้ว → อยู่ที่เดิม ไม่งั้นเปิดคนแรกที่โดน
+      const cur = { teacher: 't', group: 'g', room: 'r' }[ui.view] + ':' + ui.viewId;
+      const rk = (c.resources || []).includes(cur) ? cur : c.resource;
+      if (rk) {
+        const t = rk[0];
+        ui.view = t === 't' ? 'teacher' : t === 'g' ? 'group' : 'room';
+        ui.viewId = rk.slice(2);
+        ui.listFilter = '';
+      }
+      const sk = c.keys.find((k) => k.startsWith('S:'));
+      if (sk) { ui.cal = 'term'; ui.termSel = sk.slice(2); ui.termPick = null; ui.selected = null; }
+      else { ui.cal = 'week'; ui.selected = c.keys[0] || null; ui.termSel = null; }
       render();
+      setTimeout(() => {
+        const target = c.week ? $('#tw-' + c.week) : $('#gridwrap');
+        const sticky = $('.sticky-tools');
+        if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - (sticky ? sticky.offsetHeight : 0) - 80, behavior: 'smooth' });
+      }, 60);
     }));
     const ca = $('#clear-all', el);
     if (ca) ca.onclick = async () => {
@@ -1734,8 +1751,12 @@
       '<div class="bar"><i style="width:' + (total ? Math.round((placed / total) * 100) : 0) + '%"></i></div>' +
       (conflicts.list.length
         ? '<button class="linkish bad" id="show-conf">' + ICON.info + 'ชนกัน ' + conflicts.list.length + ' จุด ' + (ui.showConflicts ? '▴' : '▾') + '</button>' +
-          (ui.showConflicts ? '<div class="conf-list">' + conflicts.list.map((c) =>
-            '<button class="linkish" data-res="' + esc(c.resource) + '">' + esc(state.settings.days[c.day]) + ' คาบ ' + c.periods.join(', ') + ': ' + esc(c.message) + '</button>').join('') + '</div>' : '')
+          (ui.showConflicts ? '<div class="conf-list">' + conflicts.list.map((c, i) =>
+            '<button class="conf-item" data-ci="' + i + '" title="คลิกเพื่อไปดูจุดที่ชน">' +
+            '<span class="ci-when">' + esc(state.settings.days[c.day]) + ' คาบ ' + c.periods.join(', ') +
+            (c.week ? ' <span class="badge warn">ตารางทั้งเทอม · สัปดาห์ที่ ' + c.week + '</span>' : ' <span class="badge">ตารางรายสัปดาห์</span>') + '</span>' +
+            '<span class="ci-msg">' + esc(c.message.replace(/ — ตารางทั้งเทอม สัปดาห์ที่ \d+$/, '')) + '</span>' +
+            '<span class="ci-go">ไปดูจุดนี้ →</span></button>').join('') + '</div>' : '')
         : '<p class="ok-line">' + ICON.check + 'ไม่มีคาบชนกัน</p>') +
       (ui.lastUnplaced.length ? '<div class="bad-box"><div>' + ICON.info + 'จัดอัตโนมัติแล้ว แต่วางไม่ได้ ' + ui.lastUnplaced.length + ' ก้อน (เวลาเต็ม) ดูรายชื่อที่มีป้าย "เหลือ"</div>' +
         '<button class="linkish" id="dismiss-un">ปิด</button></div>' : '') +
