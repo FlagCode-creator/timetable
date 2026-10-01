@@ -1271,6 +1271,26 @@
     return ids.size;
   }
 
+  /** อ่านรายการรายวิชา "รหัส | ชื่อ | ท | ป | น" (ข้ามหัวตาราง) */
+  function parseSubjectRows(text) {
+    return splitRows(text)
+      .filter((c) => /^\d{4,5}[-*]\d{4}$/.test(normName(c[0])))
+      .map((c) => ({ code: normName(c[0]), name: normName(c[1]), t: Number(c[2]) || 0, p: Number(c[3]) || 0, n: Number(c[4]) || 0 }));
+  }
+
+  /** เพิ่มรายวิชาจากรายการ เฉพาะรหัสที่ยังไม่มี (ไม่ทับข้อมูลเดิม) */
+  function addSubjects(state, text) {
+    const have = new Set(state.subjects.map((x) => normName(x.code)));
+    const res = { added: 0, existing: 0 };
+    for (const r of parseSubjectRows(text)) {
+      if (have.has(r.code)) { res.existing++; continue; }
+      state.subjects.push({ id: uid('s'), ...r });
+      have.add(r.code);
+      res.added++;
+    }
+    return res;
+  }
+
   /* --------------------------- แบ่ง / รวม / ปรับความยาวก้อนคาบ --------------------------- */
 
   function findPlacement(state, assignmentId, blockIndex) {
@@ -1436,6 +1456,8 @@
     allBlocks,
     cellKey,
     checkPlacement,
+    parseSubjectRows,
+    addSubjects,
     defaultPLC,
     isTeacherActivity,
     buildOccupancy,

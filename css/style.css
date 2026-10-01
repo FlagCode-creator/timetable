@@ -148,6 +148,8 @@ table.data input:not([type=checkbox]), table.data select {
 table.data input:not([type=checkbox]):hover, table.data select:hover { border-color: var(--line); }
 table.data input:focus, table.data select:focus { border-color: var(--accent); outline: none; background: #fff; }
 #dbody input:not([type=checkbox]) { width: 100%; }
+#dbody td.num { width: 1%; }
+#dbody td.num input { width: 4em; text-align: center; }
 #dbody td:nth-last-child(2) { white-space: nowrap; width: 1%; }
 table.data select.need { color: var(--warn); border-color: var(--warn-soft); background: #FFFBF5; }
 table.data .c { text-align: center; }

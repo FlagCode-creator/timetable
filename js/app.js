@@ -53,6 +53,23 @@
     render();
   }
 
+  /** รายวิชาสำเร็จรูป (เช่น รายวิชา 2/2568) ที่ยังไม่มีในข้อมูล */
+  function catalogMissing() {
+    const have = new Set(state.subjects.map((x) => norm(x.code)));
+    return (window.TTCatalogs || []).map((c, i) => {
+      const rows = TT.parseSubjectRows(c.text);
+      return { i, name: c.name, total: rows.length, missing: rows.filter((r) => !have.has(r.code)) };
+    });
+  }
+
+  function addCatalog(i) {
+    const c = (window.TTCatalogs || [])[i];
+    if (!c) return;
+    const r = TT.addSubjects(state, c.text);
+    commit();
+    toast('เพิ่ม' + c.name + ' ' + r.added + ' วิชา' + (r.existing ? ' · มีอยู่แล้ว ' + r.existing + ' วิชา (ไม่ทับของเดิม)' : ''));
+  }
+
   /** กิจกรรมของครู (PLC) ที่สร้างแล้ว: เพิ่ม/ลบตามรายชื่อครูให้อัตโนมัติ */
   function syncTeacherActivities() {
     for (const r of state.settings.recurring) {
@@ -278,6 +295,7 @@
           (!state.teachers.length && state.subjects.length ? ' — <span class="warn">ยังไม่มีรายชื่อครู</span>' : ''),
         plans.map((p, i) => '<button class="btn' + (state.subjects.length ? '' : ' primary') + '" data-plan="' + i + '">ใช้' + esc(p.name) + '</button>').join('') +
         '<button class="btn" id="h-import">นำเข้าแผนการเรียนอื่น</button>' +
+        catalogMissing().filter((c) => c.missing.length).map((c) => '<button class="btn" data-catalog="' + c.i + '" title="เพิ่มเฉพาะรหัสที่ยังไม่มี ไม่ทับของเดิม">เพิ่ม' + esc(c.name) + ' (' + c.missing.length + ' วิชา)</button>').join('') +
         '<button class="btn' + (state.subjects.length && !state.teachers.length ? ' primary' : '') + '" id="h-teachers">ใส่รายชื่อครู</button>' +
         (isEmpty() ? '<button class="btn ghost" id="h-sample">ลองข้อมูลตัวอย่าง</button>' : '')) +
       step(2, done2, 'มอบวิชาให้ครู',
@@ -297,6 +315,7 @@
       '<p class="hint home-foot">วันห้ามจัด · Home Room · สัปดาห์ ปวช./ปวส. · เวลาเรียน ตั้งได้ที่ปุ่ม <b>ตั้งค่า</b> มุมขวาบน</p>';
 
     $$('[data-plan]', el).forEach((b) => (b.onclick = () => usePreparedPlan(Number(b.dataset.plan))));
+    $$('[data-catalog]', el).forEach((b) => (b.onclick = () => addCatalog(Number(b.dataset.catalog))));
     $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
     const on = (id, fn) => { const b = $(id, el); if (b) b.onclick = fn; };
     on('#h-import', openPlanImport);
@@ -847,7 +866,9 @@
     const cfg = ENT[ui.dataTab];
     el.innerHTML =
       '<div class="toolbar"><label class="search">' + ICON.search + '<input type="search" id="dfilter" aria-label="ค้นหา" placeholder="ค้นหา' + cfg.title + '" value="' + esc(ui.dataFilter) + '"></label>' +
-      '<span class="spacer"></span><button class="btn" id="dpaste">วางจาก Excel</button><button class="btn primary" id="dadd">+ เพิ่ม' + cfg.title + '</button></div>' +
+      '<span class="spacer"></span>' +
+      (ui.dataTab === 'subjects' ? catalogMissing().filter((c) => c.missing.length).map((c) => '<button class="btn" data-catalog="' + c.i + '" title="เพิ่มเฉพาะรหัสที่ยังไม่มี ไม่ทับของเดิม">+ ' + esc(c.name) + ' (' + c.missing.length + ')</button>').join('') : '') +
+      '<button class="btn" id="dpaste">วางจาก Excel</button><button class="btn primary" id="dadd">+ เพิ่ม' + cfg.title + '</button></div>' +
       '<div class="table-wrap"><table class="data"><thead><tr>' +
       cfg.fields.map((f) => '<th>' + esc(f.label) + '</th>').join('') +
       (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th title="นับให้อัตโนมัติ คลิกตัวเลขเพื่อไปดู">' + USAGE_LABEL[ui.dataTab] + '</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
@@ -866,6 +887,7 @@
       if (inputs[0]) inputs[0].focus();
     };
     $('#dpaste', el).onclick = () => openPaste(cfg.title, cfg.pasteHint, (text) => importEntity(ui.dataTab, text));
+    $$('[data-catalog]', el).forEach((b) => (b.onclick = () => addCatalog(Number(b.dataset.catalog))));
     fillDataBody();
   }
 
@@ -921,7 +943,7 @@
         // พิมพ์ชื่อแผนกใหม่ได้เลย (สร้างให้อัตโนมัติ) หรือเลือกจากรายการที่มีอยู่
         if (f.type === 'dept') return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="พิมพ์หรือเลือก" value="' + esc(deptName(it[f.k])) + '" style="min-width:' + (f.w || 8) + 'em"></td>';
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
-        return '<td><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
+        return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '" style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
       '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + usageCell(kind, it) + '</td>' +
@@ -1116,7 +1138,8 @@
       '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางภาระงานจาก Excel</button></div>' +
       '<div class="tgrid" id="tgrid"></div></section>' +
       '</div>' +
-      '<datalist id="subj-list">' + state.subjects.map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '"></option>').join('') + '</datalist>';
+      '<datalist id="subj-list">' + state.subjects.map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '"></option>').join('') +
+      catalogMissing().flatMap((c) => c.missing.map((x) => '<option value="' + esc(x.code + ' ' + x.name) + '" label="' + esc(c.name) + '"></option>')).join('') + '</datalist>';
 
     $('#b-plan', el).onclick = openPlanImport;
     $('#b-teacher', el).onclick = () => { ui.dataTab = 'teachers'; go('data'); $('#dadd').click(); };
@@ -1277,7 +1300,12 @@
       if (!rec) {
         const text = norm($('#e-subj', dlg).value);
         const code = text.split(' ')[0];
-        const found = state.subjects.find((x) => norm(x.code) === code || norm(x.code + ' ' + x.name) === text || norm(x.name) === text);
+        let found = state.subjects.find((x) => norm(x.code) === code || norm(x.code + ' ' + x.name) === text || norm(x.name) === text);
+        if (!found) {
+          // รหัสจากรายวิชาสำเร็จรูป (เช่น 2/2568): เพิ่มรายวิชาให้เลย
+          const fromCat = catalogMissing().flatMap((c) => c.missing).find((x) => x.code === code);
+          if (fromCat) { found = { id: TT.uid('s'), ...fromCat }; state.subjects.push(found); }
+        }
         if (!found && /^\d{4,5}[-*]\d{4}$/.test(code)) { toast('ไม่พบรหัสวิชา ' + code + ' เพิ่มได้ที่ ข้อมูล → รายวิชา', true); return; }
         if (!text) { toast('ใส่ชื่อวิชาหรือกิจกรรมก่อน', true); return; }
         a.subjectId = found ? found.id : null;

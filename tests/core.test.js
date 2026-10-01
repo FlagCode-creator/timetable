@@ -446,3 +446,25 @@ test('PLC: ครูทุกคนยกเว้นที่ติ๊กออ
   n1.settings.recurring = n1.settings.recurring.filter((r) => r.id !== 'rec_plc');
   assert.ok(!TT.normalizeState(n1).settings.recurring.some((r) => r.id === 'rec_plc'));
 });
+
+test('รายวิชา 2/2568: 105 วิชา เพิ่มเฉพาะรหัสที่ยังไม่มี ไม่ทับของเดิม และตรงกับแผน 2/2569', () => {
+  require('../js/catalog.js');
+  const { text } = globalThis.TTCatalogs[0];
+  const rows = TT.parseSubjectRows(text);
+  assert.strictEqual(rows.length, 105);
+  assert.strictEqual(new Set(rows.map((r) => r.code)).size, 105);
+  const s = TT.normalizeState(TT.emptyState());
+  s.subjects.push({ id: 'x', code: '20000-1203', name: 'ชื่อที่แก้เอง', t: 9, p: 9, n: 9 });
+  const r = TT.addSubjects(s, text);
+  assert.deepStrictEqual(r, { added: 104, existing: 1 });
+  assert.strictEqual(s.subjects.find((x) => x.code === '20000-1203').name, 'ชื่อที่แก้เอง');
+  assert.deepStrictEqual(TT.addSubjects(s, text), { added: 0, existing: 105 });
+  // รหัสที่ซ้ำกับแผนแผนกคอม 2/2569 ต้องได้ ชื่อ/ท-ป-น ตรงกัน
+  const fs = require('fs');
+  const path = require('path');
+  const plan = fs.readFileSync(path.join(__dirname, '..', 'data', 'แผนการเรียน-แผนกคอม-2-2569.tsv'), 'utf8').trim().split('\n').slice(1).map((l) => l.split('\t'));
+  for (const c of plan) {
+    const x = rows.find((y) => y.code === c[1]);
+    if (x) assert.deepStrictEqual([x.name, x.t, x.p, x.n], [c[2], Number(c[3]), Number(c[4]), Number(c[5])], c[1]);
+  }
+});
