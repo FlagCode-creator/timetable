@@ -388,3 +388,21 @@ test('จำนวนสัปดาห์ตามระดับ: ปวช. 1
   a.groupIds = ['s'];
   assert.strictEqual(TT.termTotal(s, a), 72);
 });
+
+test('ข้อความชนกันบอกว่าชนกับอะไร วันไหน เวลาเท่าไร', () => {
+  const s = TT.normalizeState(TT.emptyState());
+  s.groups.push({ id: 'g', code: '682190101', name: 'ปวช.2 ช่างเชื่อม', unavailable: [] });
+  s.teachers.push({ id: 't', name: 'ครูเอ', unavailable: [] });
+  s.subjects.push({ id: 'w', code: '20000-1301', name: 'วิทยาศาสตร์', t: 1, p: 2, n: 2 });
+  const a = { id: 'a', teacherId: 't', subjectId: 'w', groupIds: ['g'], blocks: '', plan: 'term', hoursPerDay: 2 };
+  s.assignments.push(a);
+  const wed = s.settings.days.indexOf('พุธ');
+  TT.addSession(s, 'a', 1, wed, { start: 5, len: 2 }); // 13:00–15:00
+  const chk = TT.checkSession(s, a, 1, wed, 6, 2); // 14:00–16:00 ซ้อนคาบ 6
+  assert.strictEqual(chk.ok, false);
+  assert.ok(chk.reasons.some((r) => r.includes('20000-1301 พุธ 13:00–15:00')), chk.reasons.join(' | '));
+  TT.addSession(s, 'a', 1, wed, { start: 6, len: 2 });
+  const msgs = TT.findConflicts(s).list.map((c) => c.message);
+  assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 14:00–16:00')), msgs.join(' | '));
+  assert.ok(msgs.some((m) => m.includes('ซ้อนกับ 20000-1301 พุธ 13:00–15:00')), msgs.join(' | '));
+});

@@ -405,7 +405,7 @@
       for (let p = start; p < start + len; p++) {
         const ck = cellKey(day, p);
         const others = m && m.get(ck);
-        if (others && others.some((k) => k !== skip)) reasons.add(resourceName(rk, idx) + ' มีคาบอื่นแล้ว');
+        if (others) others.filter((k) => k !== skip).forEach((k) => reasons.add(resourceName(rk, idx) + ': มี ' + describeWith(state, idx, cache)(k) + ' อยู่แล้ว'));
         const weeks = tm && tm.get(ck);
         if (weeks) reasons.add(resourceName(rk, idx) + ' มีตารางทั้งเทอมสัปดาห์ที่ ' + [...new Set(weeks)].sort((x, y) => x - y).slice(0, 4).join(', ') + (new Set(weeks).size > 4 ? ' …' : ''));
         if (un && un.has(ck)) reasons.add(resourceName(rk, idx) + ' ไม่ว่าง');
@@ -414,10 +414,52 @@
     return { ok: reasons.size === 0, span: true, reasons: [...reasons] };
   }
 
+  /** คำอธิบายสั้นของคาบ/ช่วงทั้งเทอม เช่น "20000-1301 พุธ 14:00–16:00" (ใช้ในข้อความชนกัน) */
+  function describer(state, idx) {
+    const pers = periods(state.settings);
+    const days = state.settings.days;
+    let sess, pls;
+    const index = () => {
+      sess = new Map((state.sessions || []).map((x) => [x.id, x]));
+      pls = new Map(state.placements.map((pl) => [placementKey(pl.assignmentId, pl.blockIndex), pl]));
+    };
+    index();
+    const label = (a) => {
+      const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
+      return sj ? sj.code : (a && a.title) || 'กิจกรรม';
+    };
+    const time = (start, len) => ((pers[start - 1] || {}).start || '?') + '–' + ((pers[start + len - 2] || {}).end || '?');
+    return (key) => {
+      if (String(key).startsWith('S:')) {
+        if (!sess.has(key.slice(2))) index(); // ข้อมูลเปลี่ยนหลังสร้าง (เช่นใช้ซ้ำใน cache)
+        const x = sess.get(key.slice(2));
+        if (!x) return '?';
+        return label(idx.assignments.get(x.assignmentId)) + ' ' + (days[x.day] || '') + ' ' + time(x.start, x.len);
+      }
+      if (!pls.has(key)) index();
+      const pl = pls.get(key);
+      if (!pl) return '?';
+      const a = idx.assignments.get(pl.assignmentId);
+      const len = a ? assignmentBlocks(a, idx.subjects)[pl.blockIndex] || 1 : 1;
+      return label(a) + ' ' + (days[pl.day] || '') + ' ' + time(pl.start, len);
+    };
+  }
+
+  function describeWith(state, idx, cache) {
+    if (!cache) return describer(state, idx);
+    return cache.desc || (cache.desc = describer(state, idx));
+  }
+
   /** หาคาบที่ชนกันทั้งหมด */
   function findConflicts(state) {
     const idx = indexState(state);
     const occ = buildOccupancy(state, idx);
+    const desc = describer(state, idx);
+    // ข้อความของแต่ละรายการบอกว่าชนกับอะไร วันไหน เวลาเท่าไร
+    const each = (keys, others, fmt, day, p, rk) => keys.forEach((k) => {
+      const o = others.filter((x) => x !== k);
+      if (o.length) add([k], fmt(o.map(desc).join(', ')), day, p, rk);
+    });
     const byPlacement = new Map();
     const list = new Map();
     const add = (keys, msg, day, p, resource) => {
@@ -435,7 +477,7 @@
       const un = unavailableOf(rk, idx);
       for (const [ck, keys] of m) {
         const [day, p] = ck.split('|').map(Number);
-        if (keys.length > 1) add(keys, resourceName(rk, idx) + ' ชนกัน', day, p, rk);
+        if (keys.length > 1) each(keys, keys, (o) => resourceName(rk, idx) + ': ชนกับ ' + o, day, p, rk);
         if (un && un.has(ck)) add(keys, resourceName(rk, idx) + ' ไม่ว่างในคาบนี้', day, p, rk);
       }
     }
@@ -447,9 +489,12 @@
       for (const [k, ids] of m) {
         const [w, d, p] = k.split('|').map(Number);
         const keys = ids.map((id) => 'S:' + id);
-        if (ids.length > 1) add(keys, resourceName(rk, idx) + ' ชนกัน (ทั้งเทอม สัปดาห์ที่ ' + w + ')', d, p, rk);
+        if (ids.length > 1) each(keys, keys, (o) => resourceName(rk, idx) + ': ซ้อนกับ ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk);
         const wk = weekly && weekly.get(cellKey(d, p));
-        if (wk) add(keys.concat(wk), resourceName(rk, idx) + ' ตารางทั้งเทอมสัปดาห์ที่ ' + w + ' ชนกับตารางรายสัปดาห์', d, p, rk);
+        if (wk) {
+          each(keys, wk, (o) => resourceName(rk, idx) + ': ชนกับตารางรายสัปดาห์ ' + o, d, p, rk);
+          each(wk, keys, (o) => resourceName(rk, idx) + ': ชนกับตารางทั้งเทอม ' + o + ' (สัปดาห์ที่ ' + w + ')', d, p, rk);
+        }
         if (un && un.has(cellKey(d, p))) add(keys, resourceName(rk, idx) + ' ไม่ว่าง (ทั้งเทอม สัปดาห์ที่ ' + w + ')', d, p, rk);
       }
     }
@@ -739,6 +784,7 @@
     const sOcc = (cache && cache.sOcc) || buildSessionOccupancy(state, idx, skipId);
     const blocked = (cache && cache.blocked) || blockedCells(state.settings);
     const reasons = new Set();
+    const d = (k) => describeWith(state, idx, cache)(k);
     for (let p = start; p < start + len; p++) {
       const why = blocked.get(cellKey(day, p));
       if (why) reasons.add(why);
@@ -748,9 +794,10 @@
       const sm = sOcc.get(rk);
       const un = unavailableOf(rk, idx);
       for (let p = start; p < start + len; p++) {
-        if (w && w.get(cellKey(day, p))) reasons.add(resourceName(rk, idx) + ' มีตารางรายสัปดาห์');
+        const wk = w && w.get(cellKey(day, p));
+        if (wk) wk.forEach((k) => reasons.add(resourceName(rk, idx) + ': มี ' + d(k) + ' (ตารางรายสัปดาห์)'));
         const ids = sm && sm.get(week + '|' + day + '|' + p);
-        if (ids && ids.some((id) => id !== skipId)) reasons.add(resourceName(rk, idx) + ' มีตารางทั้งเทอมแล้ว');
+        if (ids) ids.filter((id) => id !== skipId).forEach((id) => reasons.add(resourceName(rk, idx) + ': มี ' + d('S:' + id) + ' อยู่แล้ว (สัปดาห์ที่ ' + week + ')'));
         if (un && un.has(cellKey(day, p))) reasons.add(resourceName(rk, idx) + ' ไม่ว่าง');
       }
     }

@@ -85,7 +85,8 @@
     msg.textContent = o.msg || '';
     msg.hidden = !o.msg;
     const list = $('.ask-list', dlg);
-    list.innerHTML = (o.items || []).map((t) => '<li>' + esc(t) + '</li>').join('');
+    list.innerHTML = (o.items || []).map((t) => typeof t === 'string' ? '<li>' + esc(t) + '</li>'
+      : '<li>' + esc(t.text) + (t.sub ? '<small>' + esc(t.sub) + '</small>' : '') + '</li>').join('');
     list.hidden = !(o.items || []).length;
     const q = $('.ask-q', dlg);
     q.textContent = o.q || '';
@@ -111,11 +112,32 @@
     });
   }
 
+  /**
+   * รวมข้อความชนกันที่เหมือนกันของหลายคน/หลายกลุ่ม
+   * "ครู ก: ซ้อนกับ X" + "กลุ่มเรียน ข: ซ้อนกับ X" → { text: 'ซ้อนกับ X', sub: 'ครู ก · กลุ่มเรียน ข' }
+   */
+  function groupReasons(reasons) {
+    const m = new Map();
+    for (const r of reasons) {
+      const i = r.indexOf(': ');
+      const who = i > 0 ? r.slice(0, i) : '';
+      const what = i > 0 ? r.slice(i + 2) : r;
+      if (!m.has(what)) m.set(what, []);
+      if (who && !m.get(what).includes(who)) m.get(what).push(who);
+    }
+    return [...m].map(([text, who]) => ({ text, sub: who.join(' · ') }));
+  }
+
+  function badBox(msgs) {
+    return '<div class="bad-box"><b class="bad-h">' + ICON.info + 'ชนกันตรงนี้</b>' + groupReasons([...msgs]).map((r) =>
+      '<div class="bad-i">' + esc(r.text) + (r.sub ? '<small>' + esc(r.sub) + '</small>' : '') + '</div>').join('') + '</div>';
+  }
+
   function conflictAsk(reasons, verb) {
     return ask({
       tone: 'warn',
       title: 'ช่วงเวลานี้ชนกัน',
-      items: reasons,
+      items: groupReasons(reasons),
       q: 'ต้องการ' + verb + 'ไว้ตรงนี้ทั้งที่ชนกันไหม?',
       ok: verb + 'ต่อ',
       cancel: 'ไม่' + verb,
@@ -1548,7 +1570,7 @@
       const pending = mine.filter((b) => !b.placement);
       const sel = ui.selected && mine.find((b) => b.key === ui.selected);
       const bad = sel && conflicts.byPlacement.get(sel.key);
-      if (bad) html += '<div class="bad-box">' + [...bad].map((m) => '<div>' + ICON.info + esc(m) + '</div>').join('') + '</div>';
+      if (bad) html += badBox(bad);
       html += '<section class="card"><div class="card-head"><h2>ยังไม่ได้จัด</h2><span class="muted">' + pending.length + ' ก้อน</span></div>' +
         (pending.length
           ? '<p class="hint">ลากการ์ดไปวาง หรือคลิกการ์ดแล้วคลิกช่องสีเขียว</p>' + pending.map((b) => '<button class="chip ' + P.colorClass(state, b.assignment) + (ui.selected === b.key ? ' selected' : '') + '" draggable="true" data-key="' + esc(b.key) + '">' +
@@ -1881,7 +1903,7 @@
     }
     html += '</section>';
     const bad = ui.termSel && conflicts.byPlacement.get('S:' + ui.termSel);
-    if (bad) html = '<div class="bad-box">' + [...bad].map((m) => '<div>' + ICON.info + esc(m) + '</div>').join('') + '</div>' + html;
+    if (bad) html = badBox(bad) + html;
     const clr = '<button class="btn small ghost" id="term-clear">ล้างตารางทั้งเทอมของ' + esc(VIEWS[ui.view].label) + 'นี้</button>';
     return html + clr;
   }
