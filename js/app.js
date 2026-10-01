@@ -789,8 +789,9 @@
         { k: 'departmentId', label: 'แผนกวิชา', type: 'dept', w: 10 },
         { k: 'major', label: 'สาขาวิชา', w: 10 },
         { k: 'duty', label: 'หน้าที่พิเศษ', w: 10 },
+        { k: 'position', label: 'ตำแหน่ง', w: 9, list: ['ผู้อำนวยการ', 'รองผู้อำนวยการ', 'ครู คศ.4', 'ครู คศ.3', 'ครู คศ.2', 'ครู คศ.1', 'ครูผู้ช่วย', 'พนักงานราชการ (ครู)', 'ครูอัตราจ้าง', 'ครูพิเศษ', 'ครูอาสา'] },
       ],
-      pasteHint: 'คอลัมน์: ชื่อ-สกุล | วุฒิการศึกษา | แผนกวิชา (ถ้ายังไม่มี ระบบสร้างให้) | สาขาวิชา | หน้าที่พิเศษ\nชื่อครูควรสะกดตรงกับช่อง "ครูที่ปรึกษา" ของกลุ่มเรียน เพื่อให้สร้าง Home Room ได้อัตโนมัติ',
+      pasteHint: 'คอลัมน์: ชื่อ-สกุล | วุฒิการศึกษา | แผนกวิชา (ถ้ายังไม่มี ระบบสร้างให้) | สาขาวิชา | หน้าที่พิเศษ | ตำแหน่ง\nชื่อครูควรสะกดตรงกับช่อง "ครูที่ปรึกษา" ของกลุ่มเรียน เพื่อให้สร้าง Home Room ได้อัตโนมัติ',
     },
     subjects: {
       title: 'รายวิชา', prefix: 's', key: 'code',
@@ -918,7 +919,9 @@
       '<div class="table-wrap"><table class="data"><thead><tr>' +
       cfg.fields.map((f) => '<th>' + esc(f.label) + '</th>').join('') +
       (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th title="นับให้อัตโนมัติ คลิกตัวเลขเพื่อไปดู">' + USAGE_LABEL[ui.dataTab] + '</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
-      '<datalist id="dept-list"></datalist>';
+      '<datalist id="dept-list"></datalist>' +
+      cfg.fields.filter((f) => f.list).map((f) => '<datalist id="list-' + f.k + '">' +
+        [...new Set([...f.list, ...state[ui.dataTab].map((x) => norm(x[f.k])).filter(Boolean)])].map((v) => '<option value="' + esc(v) + '"></option>').join('') + '</datalist>').join('');
 
     $('#dfilter', el).oninput = (e) => { ui.dataFilter = e.target.value; fillDataBody(); };
     $('#dadd', el).onclick = () => {
@@ -1018,7 +1021,7 @@
         }
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
         const ph = kind === 'groups' && f.k === 'level' && !norm(it.level) ? TT.groupGrade(state, it) : '';
-        return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + ' style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
+        return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k] == null ? '' : it[f.k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : f.list ? ' placeholder="พิมพ์หรือเลือก"' : '') + (f.list ? ' list="list-' + f.k + '"' : '') + ' style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
       '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + usageCell(kind, it) + '</td>' +
