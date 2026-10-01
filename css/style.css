@@ -345,6 +345,7 @@ dialog.ask.warn .ask-list li::before { background: var(--warn); }
 .rec-tools .tg-label { display: inline-flex; align-items: center; gap: 4px; }
 .rec-tools .tl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .rec-tools select { height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; background: #fff; font-size: 13px; }
+.data-note { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--ink-2); }
 .bad-box .bad-h { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 13px; }
 .bad-box > .bad-i { display: block; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.7); color: var(--ink); }
 .bad-box .bad-i small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }

@@ -67,7 +67,7 @@
     if (!c) return;
     const r = TT.addSubjects(state, c.text);
     commit();
-    toast('เพิ่ม' + c.name + ' ' + r.added + ' วิชา' + (r.existing ? ' · มีอยู่แล้ว ' + r.existing + ' วิชา (ไม่ทับของเดิม)' : ''));
+    toast('เพิ่ม' + c.name + ' เข้าคลังรายวิชา ' + r.added + ' วิชา' + (r.existing ? ' · มีอยู่แล้ว ' + r.existing + ' วิชา' : '') + ' · มอบให้ครูได้ที่การ์ดครู → "+ เพิ่มวิชาให้ครูคนนี้"');
   }
 
   /** กิจกรรมของครู (PLC) ที่สร้างแล้ว: เพิ่ม/ลบตามรายชื่อครูให้อัตโนมัติ */
@@ -897,6 +897,7 @@
       '<span class="spacer"></span>' +
       (ui.dataTab === 'subjects' ? catalogMissing().filter((c) => c.missing.length).map((c) => '<button class="btn" data-catalog="' + c.i + '" title="เพิ่มเฉพาะรหัสที่ยังไม่มี ไม่ทับของเดิม">+ ' + esc(c.name) + ' (' + c.missing.length + ')</button>').join('') : '') +
       '<button class="btn" id="dpaste">วางจาก Excel</button><button class="btn primary" id="dadd">+ เพิ่ม' + cfg.title + '</button></div>' +
+      (ui.dataTab === 'subjects' ? '<p class="hint data-note">' + ICON.info + ' หน้านี้เป็น<b>คลังรายวิชา</b> เพิ่มที่นี่แล้วยังไม่เป็นของครูคนไหน — กด <b>"มอบให้ครู →"</b> ท้ายแถว หรือไปที่ <b>มอบวิชาให้ครู</b> → การ์ดครู → <b>"+ เพิ่มวิชาให้ครูคนนี้"</b></p>' : '') +
       '<div class="table-wrap"><table class="data"><thead><tr>' +
       cfg.fields.map((f) => '<th>' + esc(f.label) + '</th>').join('') +
       (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th title="นับให้อัตโนมัติ คลิกตัวเลขเพื่อไปดู">' + USAGE_LABEL[ui.dataTab] + '</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
@@ -930,6 +931,10 @@
 
   function usageCell(kind, it) {
     const n = usageCount(kind, it.id);
+    if (kind === 'subjects') {
+      return (n ? '<button class="linkish" data-usage="' + esc(it.id) + '" title="ดูรายการที่ใช้วิชานี้">' + n + ' กลุ่ม</button> · ' : '') +
+        '<button class="linkish" data-give="' + esc(it.id) + '" title="เลือกครูและกลุ่มเรียนของวิชานี้">มอบให้ครู →</button>';
+    }
     if (!n) return '<span class="muted" title="ยังไม่มีวิชาที่ใช้ข้อมูลนี้">–</span>';
     const unit = kind === 'subjects' ? ' กลุ่ม' : ' วิชา';
     return '<button class="linkish" data-usage="' + esc(it.id) + '" title="นับให้อัตโนมัติ คลิกเพื่อไปดู">' + n + unit + ' →</button>';
@@ -980,9 +985,10 @@
     fillDeptList();
 
     $$('[data-go-check]', body).forEach((b) => (b.onclick = () => go('check')));
+    $$('[data-give]', body).forEach((b) => (b.onclick = () => editAssignment({ id: TT.uid('a'), teacherId: '', subjectId: b.dataset.give, title: '', groupIds: [], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' }, true)));
     $$('[data-usage]', body).forEach((b) => (b.onclick = () => {
       const id = b.dataset.usage;
-      if (kind === 'teachers') { ui.assignTeacher = id; ui.dataFilter = ''; ui.listFilter = ''; go('assign'); }
+      if (kind === 'teachers') { ui.assignTeacher = id; ui.dataFilter = ''; ui.teacherFilter = ''; ui.listFilter = ''; go('assign'); }
       else if (kind === 'groups') { ui.view = 'group'; ui.viewId = id; ui.listFilter = ''; go('schedule'); }
       else if (kind === 'rooms') { ui.view = 'room'; ui.viewId = id; ui.listFilter = ''; go('schedule'); }
       else {
@@ -1182,7 +1188,7 @@
       (sel ? '<div class="pool-target">มอบให้: <b>' + esc(sel.name) + '</b></div>' : '<div class="pool-target muted">ยังไม่ได้เลือกครู — คลิกการ์ดครูทางขวาก่อน</div>') +
       '<label class="search">' + ICON.search + '<input type="search" id="pool-q" aria-label="ค้นหาวิชา" placeholder="ค้นหาวิชา หรือกลุ่มเรียน" value="' + esc(ui.listFilter) + '"></label>' +
       '<div id="pool-list" class="pool-list"></div></section>' +
-      '<section class="teachers"><div class="toolbar"><label class="search">' + ICON.search + '<input type="search" id="t-q" aria-label="ค้นหาครู" placeholder="ค้นหาครู" value="' + esc(ui.dataFilter) + '"></label>' +
+      '<section class="teachers"><div class="toolbar"><label class="search">' + ICON.search + '<input type="search" id="t-q" aria-label="ค้นหาครู" placeholder="ค้นหาครู" value="' + esc(ui.teacherFilter || '') + '"></label>' +
       '<span class="spacer"></span><button class="btn small ghost" id="b-paste">วางภาระงานจาก Excel</button></div>' +
       '<div class="tgrid" id="tgrid"></div></section>' +
       '</div>' +
@@ -1195,7 +1201,7 @@
       'คอลัมน์: ชื่อครู | รหัสวิชา (หรือชื่อกิจกรรม) | รหัสกลุ่มเรียน (เรียนรวมหลายกลุ่มคั่นด้วย , ) | ห้อง | รูปแบบคาบ (เว้นว่างได้) | Block Course (ใส่ "ใช่") | ทั้งเทอม (ใส่ "ใช่")',
       importAssignments);
     $('#pool-q', el).oninput = (e) => { ui.listFilter = e.target.value; fillPool(); };
-    $('#t-q', el).oninput = (e) => { ui.dataFilter = e.target.value; fillTeachers(); };
+    $('#t-q', el).oninput = (e) => { ui.teacherFilter = e.target.value; fillTeachers(); };
     fillPool();
     fillTeachers();
     // ลากวิชาไปวางบนการ์ดครู / ลากกลับมาที่ "ยังไม่มีครู"
@@ -1277,7 +1283,7 @@
 
   function fillTeachers() {
     const idx = TT.indexState(state);
-    const q = norm(ui.dataFilter).toLowerCase();
+    const q = norm(ui.teacherFilter || '').toLowerCase();
     const dept = new Map(state.departments.map((d) => [d.id, d.name]));
     const ts = state.teachers.filter((t) => !q || norm(t.name).toLowerCase().includes(q));
     const box = $('#tgrid');
@@ -1307,7 +1313,7 @@
           return '<div class="tsubj ' + P.colorClass(state, list[0]) + '"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม</small></div>' +
             list.map((a) => chip(a, '<small class="g">' + esc(groupsLabel(a, idx)) + term(a) + '</small>')).join('') + '</div>';
         }).join('') || '<p class="hint">ยังไม่มีวิชา</p>') + '</div>' +
-        '<button class="btn small ghost tc-add" data-new="' + esc(t.id) + '">+ เพิ่มวิชาที่ไม่มีในแผน</button>' +
+        '<button class="btn small ghost tc-add" data-new="' + esc(t.id) + '">+ เพิ่มวิชาให้ครูคนนี้</button>' +
         '</article>';
     }).join('') || '<div class="card empty-state">ยังไม่มีครู กด "+ เพิ่มครู" ด้านบน</div>';
     $$('[data-pick-t]', box).forEach((b) => (b.onclick = () => { ui.assignTeacher = ui.assignTeacher === b.dataset.pickT ? '' : b.dataset.pickT; render(); }));
@@ -1380,6 +1386,17 @@
       $$('.e-term', dlg).forEach((x) => (x.hidden = !term));
     };
     if (!rec) { $('#e-plan', dlg).onchange = showPlan; showPlan(); }
+    // เลือกวิชาแล้วใส่ ชม./สัปดาห์ ตาม ท+ป ของวิชานั้นให้ (แก้ต่อเองได้)
+    const subjIn = $('#e-subj', dlg);
+    if (subjIn) subjIn.onchange = () => {
+      const text = norm(subjIn.value);
+      const code = text.split(' ')[0];
+      const found = state.subjects.find((x) => norm(x.code) === code || norm(x.code + ' ' + x.name) === text) ||
+        catalogMissing().flatMap((c) => c.missing).find((x) => x.code === code);
+      if (!found) return;
+      const h = TT.subjectHours(found);
+      if (h) { $('#e-hours', dlg).value = h; const bl = $('#e-blocks', dlg); if (bl) bl.value = ''; }
+    };
     const gb = $('#e-groups', dlg);
     if (gb) gb.onclick = () => pickGroups(draft, () => { gb.textContent = groupsLabel(draft, TT.indexState(state)); });
     $('#e-cancel', dlg).onclick = () => dlg.close();
