@@ -358,6 +358,25 @@ dialog.ask.warn .ask-list li::before { background: var(--warn); }
 #dbody tr.grade-row .muted { font-size: 12px; font-weight: 400; margin-left: 6px; }
 .gr-flex { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 #dbody tr.new-row td { background: #FFFBEA; }
+/* รายวิชาของกลุ่มเรียน */
+dialog.gsub { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 40px); display: none; flex-direction: column; gap: 10px; }
+dialog.gsub[open] { display: flex; }
+.gs-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.gs-head h3 { margin: 0; }
+.gs-head .hint { margin: 2px 0 0; }
+.gs-add .search { width: 100%; }
+.gs-add .search input { width: 100%; border: 0 !important; background: transparent; padding: 0; outline: none; }
+.gs-hits { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 240px; overflow: auto; }
+.gs-hit { display: flex; align-items: center; gap: 10px; text-align: left; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; font-size: 13.5px; color: var(--ink); }
+.gs-hit:hover:not([disabled]) { border-color: var(--accent); background: var(--accent-soft); }
+.gs-hit.in { opacity: .55; cursor: default; }
+.gs-hit .gs-plus { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.gs-list { overflow: auto; min-height: 120px; border: 1px solid var(--line-2); border-radius: 10px; }
+.gs-list table.data td { font-size: 13.5px; }
+.gs-list tr.alt td { background: #F7F6F2; }
+.gs-list .nowrap { white-space: nowrap; }
+.gs-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gs-foot select { height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; max-width: 280px; }
 .bad-box .bad-h { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 13px; }
 .bad-box > .bad-i { display: block; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.7); color: var(--ink); }
 .bad-box .bad-i small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }

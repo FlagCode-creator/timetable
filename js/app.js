@@ -961,6 +961,10 @@
 
   function usageCell(kind, it) {
     const n = usageCount(kind, it.id);
+    if (kind === 'groups') {
+      const k = TT.groupSubjects(state, it.id).length;
+      return '<button class="linkish" data-gsub="' + esc(it.id) + '" title="ดู เพิ่ม หรือเอาวิชาออก">' + (k ? k + ' วิชา' : '+ เพิ่มวิชา') + ' →</button>';
+    }
     if (kind === 'subjects') {
       return (n ? '<button class="linkish" data-usage="' + esc(it.id) + '" title="ดูรายการที่ใช้วิชานี้">' + n + ' กลุ่ม</button> · ' : '') +
         '<button class="linkish" data-give="' + esc(it.id) + '" title="เลือกครูและกลุ่มเรียนของวิชานี้">มอบให้ครู →</button>';
@@ -995,6 +999,116 @@
   function codeKey(code) {
     const c = String(code || '').trim().replace(/[*\s]/g, '-');
     return c || '\uffff';
+  }
+
+  /** รายวิชาของกลุ่มเรียน: ดู · เพิ่ม (ค้นจากคลังรายวิชา) · เอาออก · คัดลอกจากกลุ่มอื่น */
+  function openGroupSubjects(gid) {
+    const dlg = $('#dlg-gsub');
+    let q = '';
+    const draw = () => {
+      const g = state.groups.find((x) => x.id === gid);
+      if (!g) { dlg.close(); return; }
+      const idx = TT.indexState(state);
+      const list = TT.groupSubjects(state, gid).slice().sort((a, b) => {
+        const ca = (idx.subjects.get(a.subjectId) || {}).code || a.title || '';
+        const cb = (idx.subjects.get(b.subjectId) || {}).code || b.title || '';
+        return codeKey(ca).localeCompare(codeKey(cb), 'th', { numeric: true });
+      });
+      const hrs = list.reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
+      const rec = state.assignments.filter((a) => a.recurringId && (a.groupIds || [])[0] === gid);
+      const have = new Set(list.map((a) => a.subjectId));
+      // ผลค้นหา: คลังรายวิชา + รายวิชาสำเร็จรูปที่ยังไม่ได้เพิ่ม
+      let hits = [];
+      const ql = norm(q).toLowerCase();
+      if (ql) {
+        const seen = new Set();
+        const hit = (x) => (x.code + ' ' + x.name).toLowerCase().includes(ql);
+        for (const x of state.subjects) if (hit(x) && !seen.has(x.code)) { seen.add(x.code); hits.push({ code: x.code, name: x.name, x, id: x.id }); }
+        for (const c of catalogMissing()) for (const x of c.missing) if (hit(x) && !seen.has(x.code)) { seen.add(x.code); hits.push({ code: x.code, name: x.name, x, from: c.name }); }
+        hits.sort((a, b) => codeKey(a.code).localeCompare(codeKey(b.code), 'th', { numeric: true }));
+      }
+      const others = sortGroups(state.groups.filter((x) => x.id !== gid && TT.groupSubjects(state, x.id).length));
+      dlg.innerHTML =
+        '<div class="gs-head"><div><h3>รายวิชาของ ' + esc(g.name || g.code || 'กลุ่มใหม่') + '</h3>' +
+        '<p class="hint">' + [TT.groupGrade(state, g), groupDeptName(g), list.length + ' วิชา', hrs + ' ชม./สัปดาห์'].filter(Boolean).map(esc).join(' · ') + '</p></div>' +
+        '<button class="btn icon ghost" id="gs-close" aria-label="ปิด">' + ICON.x + '</button></div>' +
+        '<div class="gs-add"><label class="search">' + ICON.search + '<input type="search" id="gs-q" placeholder="ค้นรหัสหรือชื่อวิชาเพื่อเพิ่ม (คลังรายวิชา + รายวิชา 2/2568)" value="' + esc(q) + '"></label>' +
+        (hits.length ? '<div class="gs-hits">' + hits.slice(0, 12).map((h) => {
+          const inGroup = h.id && have.has(h.id);
+          return '<button class="gs-hit' + (inGroup ? ' in' : '') + '" data-gadd="' + esc(h.code) + '"' + (inGroup ? ' disabled' : '') + '>' +
+            '<span class="grow"><b>' + esc(h.code) + '</b> ' + esc(h.name) + (h.from ? ' <small class="muted">(' + esc(h.from) + ')</small>' : '') + '</span>' +
+            '<small>' + esc([h.x.t, h.x.p, h.x.n].join('-')) + '</small><span class="gs-plus">' + (inGroup ? 'มีแล้ว' : '+ เพิ่ม') + '</span></button>';
+        }).join('') + (hits.length > 12 ? '<p class="hint">… อีก ' + (hits.length - 12) + ' วิชา พิมพ์ให้ละเอียดขึ้น</p>' : '') + '</div>'
+          : ql ? '<p class="hint">ไม่พบวิชา "' + esc(q) + '" — เพิ่มวิชาใหม่ได้ที่ ข้อมูล → รายวิชา</p>' : '') +
+        '</div>' +
+        '<div class="gs-list">' + (list.length ? '<table class="data"><thead><tr><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>ท-ป-น</th><th>ชม.</th><th>ครูผู้สอน</th><th></th></tr></thead><tbody>' +
+          list.map((a, i) => {
+            const sj = idx.subjects.get(a.subjectId);
+            const t = idx.teachers.get(a.teacherId);
+            const mates = a.groupIds.filter((x) => x !== gid).map((x) => (idx.groups.get(x) || {}).name).filter(Boolean);
+            return '<tr class="' + (i % 2 ? 'alt' : '') + '"><td class="nowrap">' + esc(sj ? sj.code : '') + '</td><td>' + esc(sj ? sj.name : a.title) +
+              (mates.length ? '<br><small class="muted">เรียนรวมกับ ' + esc(mates.join(', ')) + '</small>' : '') + '</td>' +
+              '<td class="c">' + esc(sj ? [sj.t, sj.p, sj.n].join('-') : '') + '</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td>' +
+              '<td>' + (t ? esc(t.name) : '<span class="warn">ยังไม่มีครู</span>') + '</td>' +
+              '<td><button class="btn icon danger" data-gdel="' + esc(a.id) + '" aria-label="เอาวิชานี้ออกจากกลุ่ม" title="เอาวิชานี้ออกจากกลุ่ม">' + ICON.x + '</button></td></tr>';
+          }).join('') +
+          rec.map((a) => '<tr class="rec-row"><td class="nowrap">' + ICON.lock + ' ' + esc(a.title) + '</td><td class="muted" colspan="2">กิจกรรมประจำ (ตั้งที่ ตั้งค่า → เงื่อนไข)</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td><td>' + esc((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู') + '</td><td></td></tr>').join('') +
+          '</tbody></table>' : '<p class="empty-row">ยังไม่มีรายวิชา — ค้นหาด้านบนเพื่อเพิ่ม หรือคัดลอกจากกลุ่มอื่นด้านล่าง</p>') + '</div>' +
+        '<div class="gs-foot">' +
+        (others.length ? '<label class="tl">คัดลอกรายวิชาจาก <select id="gs-from"><option value="">เลือกกลุ่ม…</option>' +
+          others.map(({ g: x, grade }) => '<option value="' + esc(x.id) + '">' + esc((grade ? grade + ' · ' : '') + (x.name || x.code)) + ' (' + TT.groupSubjects(state, x.id).length + ' วิชา)</option>').join('') +
+          '</select></label><button class="btn small" id="gs-copy">คัดลอก</button>' : '') +
+        '<span class="spacer"></span><span class="hint">วิชาที่เพิ่มจะไปรอที่ <b>มอบวิชาให้ครู → ยังไม่มีครู</b></span>' +
+        '<button class="btn primary" id="gs-done">เสร็จ</button></div>';
+
+      const qi = $('#gs-q', dlg);
+      qi.oninput = () => { q = qi.value; draw(); const n = $('#gs-q', dlg); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+      $$('[data-gadd]', dlg).forEach((b) => (b.onclick = () => {
+        const code = b.dataset.gadd;
+        let sj = state.subjects.find((x) => x.code === code);
+        if (!sj) {
+          const x = catalogMissing().flatMap((c) => c.missing).find((y) => y.code === code);
+          if (!x) return;
+          sj = { id: TT.uid('s'), ...x };
+          state.subjects.push(sj);
+        }
+        const r = TT.addSubjectToGroup(state, gid, sj.id);
+        save();
+        toast(r.exists ? 'กลุ่มนี้มี ' + sj.code + ' อยู่แล้ว' : 'เพิ่ม ' + sj.code + ' ' + sj.name + (TT.isActivitySubject(sj) ? ' (ลงตารางพุธ 09:00 ล็อกให้แล้ว)' : ''));
+        draw();
+        const n = $('#gs-q', dlg); if (n) n.focus();
+      }));
+      $$('[data-gdel]', dlg).forEach((b) => (b.onclick = async () => {
+        const a = state.assignments.find((x) => x.id === b.dataset.gdel);
+        if (!a) return;
+        const sj = state.subjects.find((x) => x.id === a.subjectId);
+        const t = state.teachers.find((x) => x.id === a.teacherId);
+        const placed = state.placements.some((p) => p.assignmentId === a.id) || (state.sessions || []).some((x) => x.assignmentId === a.id);
+        const shared = a.groupIds.length > 1;
+        if ((t || placed) && !(await ask({ tone: 'danger', title: 'เอา ' + (sj ? sj.code : a.title) + ' ออกจาก ' + (g.name || g.code) + '?',
+          msg: shared ? 'วิชานี้เรียนรวมกับกลุ่มอื่น จะเอาออกเฉพาะกลุ่มนี้ (ครูและตารางของกลุ่มอื่นยังอยู่)'
+            : (t ? 'ครู ' + t.name + ' สอนวิชานี้อยู่' : '') + (placed ? (t ? ' และ' : '') + 'คาบที่จัดไว้จะถูกนำออกจากตาราง' : ''), ok: 'เอาออก' }))) return;
+        TT.removeSubjectFromGroup(state, a.id, gid);
+        save();
+        toast('เอา ' + (sj ? sj.code : a.title) + ' ออกจาก ' + (g.name || g.code) + ' แล้ว');
+        draw();
+      }));
+      const cp = $('#gs-copy', dlg);
+      if (cp) cp.onclick = () => {
+        const from = $('#gs-from', dlg).value;
+        if (!from) { toast('เลือกกลุ่มที่จะคัดลอกก่อน', true); return; }
+        const r = TT.copyGroupSubjects(state, from, gid);
+        save();
+        toast('คัดลอกแล้ว ' + r.added + ' วิชา' + (r.existing ? ' · มีอยู่แล้ว ' + r.existing + ' วิชา' : ''));
+        draw();
+      };
+      $('#gs-close', dlg).onclick = () => dlg.close();
+      $('#gs-done', dlg).onclick = () => dlg.close();
+    };
+    dlg.onclose = () => { dlg.onclose = null; render(); };
+    draw();
+    dlg.showModal();
+    const n = $('#gs-q', dlg); if (n) n.focus();
   }
 
   /** แผนกของกลุ่ม (ที่ตั้งไว้ หรือที่เดา) */
@@ -1066,6 +1180,7 @@
     fillDeptList();
 
     $$('[data-go-check]', body).forEach((b) => (b.onclick = () => go('check')));
+    $$('[data-gsub]', body).forEach((b) => (b.onclick = () => openGroupSubjects(b.dataset.gsub)));
     $$('[data-addgrade]', body).forEach((b) => (b.onclick = () => {
       // กลุ่มใหม่ในชั้นนั้น: ใส่ระดับชั้นให้ แล้วพิมพ์รหัส/ชื่อกลุ่มต่อได้เลย
       const g = { id: TT.uid('g'), level: b.dataset.addgrade, code: '', name: '', departmentId: '', major: '', size: '', advisor: '', unavailable: [] };

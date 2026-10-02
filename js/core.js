@@ -1378,6 +1378,60 @@
     return changed;
   }
 
+  /* ------------------------- รายวิชาของกลุ่มเรียน (แผนการเรียนรายกลุ่ม) ------------------------- */
+
+  /** วิชากิจกรรมลงตารางวันพุธ 09:00–11:00 (คาบ 2) แบบล็อก เหมือนตอนนำเข้าแผนการเรียน */
+  const ACTIVITY_SLOT = { day: 'พุธ', start: 2 };
+
+  /** รายการวิชาของกลุ่ม (ไม่รวมกิจกรรมประจำ เช่น Home Room) */
+  function groupSubjects(state, groupId) {
+    return state.assignments.filter((a) => !a.recurringId && (a.groupIds || []).includes(groupId));
+  }
+
+  /** เพิ่มวิชาให้กลุ่ม (ยังไม่มีครู) · ถ้ากลุ่มมีวิชานี้อยู่แล้วไม่เพิ่มซ้ำ */
+  function addSubjectToGroup(state, groupId, subjectId, opts) {
+    const sj = state.subjects.find((x) => x.id === subjectId);
+    if (!sj || !state.groups.some((g) => g.id === groupId)) return { error: 'ไม่พบวิชาหรือกลุ่มเรียน' };
+    if (groupSubjects(state, groupId).some((a) => a.subjectId === subjectId)) return { exists: true };
+    const a = { id: uid('a'), teacherId: '', subjectId, title: '', groupIds: [groupId], roomId: null, blocks: '', blockCourse: false, plan: 'weekly' };
+    state.assignments.push(a);
+    const act = opts && opts.activity === false ? null : ACTIVITY_SLOT;
+    if (act && isActivitySubject(sj)) {
+      const d = state.settings.days.indexOf(act.day);
+      const len = assignmentBlocks(a, new Map([[sj.id, sj]]))[0] || 2;
+      if (d >= 0 && canSpan(periods(state.settings), act.start, len, true)) {
+        state.placements.push({ assignmentId: a.id, blockIndex: 0, day: d, start: act.start, locked: true });
+      }
+    }
+    return { assignment: a };
+  }
+
+  /** เอาวิชาออกจากกลุ่ม: เรียนรวมหลายกลุ่ม → เอาเฉพาะกลุ่มนี้ออก · เรียนกลุ่มเดียว → ลบรายการและคาบที่จัดไว้ */
+  function removeSubjectFromGroup(state, assignmentId, groupId) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId) return { error: 'ลบไม่ได้' };
+    if ((a.groupIds || []).length > 1) {
+      a.groupIds = a.groupIds.filter((g) => g !== groupId);
+      return { deleted: false };
+    }
+    state.assignments = state.assignments.filter((x) => x !== a);
+    state.placements = state.placements.filter((p) => p.assignmentId !== a.id);
+    state.sessions = (state.sessions || []).filter((x) => x.assignmentId !== a.id);
+    return { deleted: true };
+  }
+
+  /** คัดลอกรายวิชาจากอีกกลุ่ม (เฉพาะวิชา ไม่รวมครู/ตาราง) */
+  function copyGroupSubjects(state, fromId, toId) {
+    const res = { added: 0, existing: 0 };
+    for (const a of groupSubjects(state, fromId)) {
+      if (!a.subjectId) continue;
+      const r = addSubjectToGroup(state, toId, a.subjectId);
+      if (r.exists) res.existing++;
+      else if (r.assignment) res.added++;
+    }
+    return res;
+  }
+
   /** หาครูจากชื่อ (ไม่สนช่องว่าง/จุด) */
   function findTeacherByName(state, name) {
     const k = looseName(name);
@@ -1626,6 +1680,10 @@
     cellKey,
     checkPlacement,
     findTeacherByName,
+    groupSubjects,
+    addSubjectToGroup,
+    removeSubjectFromGroup,
+    copyGroupSubjects,
     recurringSlotOk,
     syncRecurringPlacements,
     groupGrade,

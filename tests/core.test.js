@@ -520,3 +520,21 @@ test('Home Room ตรงกับครูที่ปรึกษาในข�
   assert.strictEqual(hr('g1').teacherId, '');
   assert.strictEqual(TT.syncAdvisors(s), 0, 'ตรงกันแล้วไม่เปลี่ยนซ้ำ');
 });
+
+test('รายวิชาของกลุ่ม: เพิ่ม/เอาออก/คัดลอก (เรียนรวมเอาเฉพาะกลุ่มนี้ออก · วิชากิจกรรมลงพุธ 09:00 ล็อก)', () => {
+  const s = mini();
+  s.subjects.push({ id: 'act', code: '20000-2004', name: 'กิจกรรมองค์การวิชาชีพ 1', t: 0, p: 2, n: 0 });
+  assert.ok(TT.addSubjectToGroup(s, 'g1', 's1').assignment);
+  assert.ok(TT.addSubjectToGroup(s, 'g1', 's1').exists, 'ไม่เพิ่มซ้ำ');
+  const act = TT.addSubjectToGroup(s, 'g1', 'act').assignment;
+  const pl = s.placements.find((p) => p.assignmentId === act.id);
+  assert.ok(pl && pl.locked && pl.day === s.settings.days.indexOf('พุธ') && pl.start === 2);
+  assert.deepStrictEqual(TT.copyGroupSubjects(s, 'g1', 'g2'), { added: 2, existing: 0 });
+  assert.strictEqual(TT.groupSubjects(s, 'g2').length, 2);
+  // เรียนรวม 2 กลุ่ม: เอาออกจากกลุ่มเดียว รายการยังอยู่ให้อีกกลุ่ม
+  s.assignments.push({ id: 'mix', teacherId: 't1', subjectId: 's2', groupIds: ['g1', 'g2'], blocks: '' });
+  assert.deepStrictEqual(TT.removeSubjectFromGroup(s, 'mix', 'g1'), { deleted: false });
+  assert.deepStrictEqual(s.assignments.find((a) => a.id === 'mix').groupIds, ['g2']);
+  assert.deepStrictEqual(TT.removeSubjectFromGroup(s, act.id, 'g1'), { deleted: true });
+  assert.ok(!s.placements.some((p) => p.assignmentId === act.id), 'คาบที่จัดไว้ถูกลบด้วย');
+});
