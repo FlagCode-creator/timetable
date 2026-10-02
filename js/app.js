@@ -595,7 +595,8 @@
     const dayChoices = openDays().includes(r.day) ? openDays() : [r.day, ...openDays()];
     let status;
     if (mine.length) {
-      const blankNames = blank.map((a) => (state.groups.find((g) => g.id === a.groupIds[0]) || {}).name).filter(Boolean);
+      const blankIds = new Set(blank.map((a) => a.groupIds[0]));
+      const blankNames = sortGroups(state.groups.filter((g) => blankIds.has(g.id))).map((x) => x.g.name || x.g.code).filter(Boolean);
       status = '<li class="ok">' + ICON.check + '<span>สร้างแล้ว ' + mine.length + ' กลุ่มเรียน · มีครูแล้ว ' + (mine.length - blank.length) + ' กลุ่ม</span></li>' +
         (blank.length
           ? '<li class="warn">' + ICON.info + '<span>ยังไม่มีครู ' + blank.length + ' กลุ่ม: ' + esc(blankNames.slice(0, 6).join(', ')) + (blankNames.length > 6 ? ' …' : '') +
