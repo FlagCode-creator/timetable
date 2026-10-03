@@ -456,6 +456,76 @@
     return 'ก้อนนี้ยาว ' + len + ' คาบ ถ้าเริ่มคาบ ' + start + ' จะคร่อมช่วงพัก (ถ้าต้องการเรียนข้ามพัก ให้ติ๊ก Block Course)';
   }
 
+  /* ---------- วัน/เวลาที่ให้วิชาสอนได้ (ตั้งรายวิชา) ---------- */
+
+  /** มีการกำหนดวัน/เวลาไหม (allowDays = ชื่อวัน, allowFrom/allowTo = คาบ) — ไม่กำหนด = ทุกวันทุกคาบ */
+  function hasWindow(a) {
+    return !!a && !a.recurringId && ((a.allowDays && a.allowDays.length > 0) || Number(a.allowFrom) > 0 || Number(a.allowTo) > 0);
+  }
+
+  /** ช่วงคาบที่ให้สอนได้ { days:Set<dayIndex>|null, from, to } */
+  function windowOf(state, a) {
+    const P = periods(state.settings).length;
+    const days = a && a.allowDays && a.allowDays.length ? new Set(a.allowDays.map((n) => state.settings.days.indexOf(n)).filter((d) => d >= 0)) : null;
+    const from = Math.max(1, Math.min(P, Number(a && a.allowFrom) || 1));
+    const to = Math.max(from, Math.min(P, Number(a && a.allowTo) || P));
+    return { days, from, to };
+  }
+
+  /** ข้อความเหตุผล ถ้าวาง day/start/len แล้วอยู่นอกวัน/เวลาที่กำหนด (ไม่ใช่ = '') */
+  function windowReason(state, a, day, start, len, win) {
+    if (!hasWindow(a)) return '';
+    const w = win || windowOf(state, a);
+    if (w.days && !w.days.has(day)) return 'วิชานี้กำหนดให้สอนเฉพาะวัน' + [...w.days].sort((x, y) => x - y).map((d) => state.settings.days[d]).join(', ');
+    if (start < w.from || start + len - 1 > w.to) {
+      const pers = periods(state.settings);
+      return 'วิชานี้กำหนดให้สอนเฉพาะ ' + (pers[w.from - 1] || {}).start + '–' + (pers[w.to - 1] || {}).end + ' (คาบ ' + w.from + '–' + w.to + ')';
+    }
+    return '';
+  }
+
+  /** ตั้งวัน/เวลาที่ให้สอน: days = ชื่อวัน [] (ว่าง = ทุกวัน), from/to = คาบ (0 = ไม่กำหนด) */
+  function setWindow(state, assignmentId, win) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId) return { ok: false, reason: 'กิจกรรมประจำกำหนดวัน/เวลาที่ ตั้งค่า → เงื่อนไข' };
+    const P = periods(state.settings).length;
+    const days = (win.days || []).filter((n) => state.settings.days.includes(n));
+    let from = Number(win.from) || 0;
+    let to = Number(win.to) || 0;
+    if (from && to && to < from) [from, to] = [to, from];
+    if (from <= 1) from = 0;
+    if (to >= P) to = 0;
+    if (days.length && days.length < state.settings.days.length) a.allowDays = days; else delete a.allowDays;
+    if (from) a.allowFrom = from; else delete a.allowFrom;
+    if (to) a.allowTo = to; else delete a.allowTo;
+    // ที่วางไว้แล้วแต่อยู่นอกช่วงใหม่ (ไม่นับที่ล็อก)
+    const idx = indexState(state);
+    const blocks = assignmentBlocks(a, idx.subjects);
+    const outside = {
+      placements: state.placements.filter((pl) => pl.assignmentId === a.id && !pl.locked && windowReason(state, a, pl.day, pl.start, blocks[pl.blockIndex] || 1)),
+      sessions: (state.sessions || []).filter((x) => x.assignmentId === a.id && windowReason(state, a, x.day, x.start, x.len)),
+    };
+    return { ok: true, outside };
+  }
+
+  /** ชั่วโมงสูงสุดต่อสัปดาห์ที่ช่วงที่กำหนดรับได้ (ไม่นับช่องห้ามจัด) และก้อนยาวสุดที่ลงได้ */
+  function windowCapacity(state, a) {
+    const w = windowOf(state, a);
+    const blocked = blockedCells(state.settings);
+    let hours = 0;
+    let longest = 0;
+    state.settings.days.forEach((_, d) => {
+      if (w.days && !w.days.has(d)) return;
+      let run = 0;
+      for (let p = w.from; p <= w.to; p++) {
+        if (blocked.has(cellKey(d, p))) { run = 0; continue; }
+        hours++;
+        longest = Math.max(longest, ++run);
+      }
+    });
+    return { hours, longest };
+  }
+
   /**
    * ผู้ใช้คลิกคาบ p: หาคาบเริ่มที่ทำให้ก้อนครอบคาบ p และไม่เลยขอบ/คร่อมพัก
    * ลองเริ่มที่ p ก่อน แล้วถอยทีละคาบ เลือกตำแหน่งที่ไม่ชนก่อน ถ้าไม่มีเลยคืนตำแหน่งแรกที่วางได้ (ชน)
@@ -492,6 +562,8 @@
       const why = blocked.get(cellKey(day, p));
       if (why) reasons.add(why);
     }
+    const outWin = windowReason(state, a, day, start, len);
+    if (outWin) reasons.add(outWin);
     const termCells = (cache && cache.termCells) || sessionWeeksByCell(state, idx);
     for (const rk of resourceKeys(a, idx)) {
       const m = occ.get(rk);
@@ -766,7 +838,10 @@
     for (const b of allBlocks(state)) {
       const keys = resourceKeys(b.assignment, idx);
       if (b.placement) bump(b.assignment, keys, b.placement.day, b.placement.start, b.len, 1);
-      else if (!b.assignment.recurringId) units.push({ block: b, a: b.assignment, len: b.len, keys }); // กิจกรรมประจำวางเองตามวัน/คาบที่ตั้งไว้เท่านั้น
+      else if (!b.assignment.recurringId && (!opts.only || opts.only.has(b.assignment.id))) {
+        // กิจกรรมประจำวางเองตามวัน/คาบที่ตั้งไว้เท่านั้น · วิชาที่กำหนดวัน/เวลา วางเฉพาะในช่วงนั้น
+        units.push({ block: b, a: b.assignment, len: b.len, keys, win: hasWindow(b.assignment) ? windowOf(state, b.assignment) : null });
+      }
     }
 
     const positions = [];
@@ -774,6 +849,7 @@
 
     const fits = (u, d, s) => {
       if (!canSpan(pers, s, u.len, !!u.a.blockCourse)) return false;
+      if (u.win && ((u.win.days && !u.win.days.has(d)) || s < u.win.from || s + u.len - 1 > u.win.to)) return false;
       for (let p = s; p < s + u.len; p++) if (blockedArr[d * P + p - 1]) return false;
       for (const rk of u.keys) {
         const g = grid(rk);
@@ -911,6 +987,8 @@
       const why = blocked.get(cellKey(day, p));
       if (why) reasons.add(why);
     }
+    const outWin = windowReason(state, a, day, start, len);
+    if (outWin) reasons.add(outWin);
     for (const rk of resourceKeys(a, idx)) {
       const w = weekly.get(rk);
       const sm = sOcc.get(rk);
@@ -1748,6 +1826,11 @@
     resourceKeys,
     sanitizePlacements,
     setHours,
+    hasWindow,
+    windowOf,
+    windowReason,
+    setWindow,
+    windowCapacity,
     allBlocks,
     cellKey,
     checkPlacement,

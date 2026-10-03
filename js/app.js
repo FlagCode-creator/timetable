@@ -209,6 +209,7 @@
     info: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>',
     x: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     scissors: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M8.2 8.3L19 17M8.2 15.7L19 7"/></svg>',
+    clock: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   };
 
   /* --------------------------------- เค้าโครง --------------------------------- */
@@ -1937,6 +1938,14 @@
       '</div>';
 
     fillEntityList(blocks);
+    // คลิกขวาที่วิชา (การ์ดหรือคาบในตาราง) = กำหนดวัน/เวลาที่สอน
+    el.oncontextmenu = (e) => {
+      const n = e.target.closest('[data-key],[data-term],[data-toterm],[data-toweek],[data-when],[data-editasg]');
+      const aid = assignmentOfNode(n);
+      if (!aid) return;
+      e.preventDefault();
+      editWindow(aid);
+    };
     $$('[data-cal]', el).forEach((b) => (b.onclick = () => { ui.cal = b.dataset.cal; ui.selected = null; ui.termPick = null; ui.termSel = null; render(); }));
     $$('[data-view]', el).forEach((b) => (b.onclick = () => { ui.view = b.dataset.view; ui.viewId = ''; ui.listFilter = ''; ui.selected = null; ui.termPick = null; ui.termSel = null; render(); }));
     $('#lfilter', el).oninput = (e) => { ui.listFilter = e.target.value; fillEntityList(blocks); };
@@ -2085,6 +2094,7 @@
       '<span class="tg-label">ท้าย</span>' +
       '<button class="btn small" data-rs="0,1"' + dis(can) + ' aria-label="เพิ่มคาบที่ท้าย">+1</button>' +
       '<button class="btn small" data-rs="0,-1"' + dis(can && sel.len > 1) + ' aria-label="ลดคาบที่ท้าย">−1</button></div>' +
+      '<div class="tool-group"><button class="btn small" data-when="' + esc(sel.a.id) + '" title="กำหนดวันและช่วงเวลาที่ให้วิชานี้สอนได้">วัน/เวลา…</button></div>' +
       '<div class="tool-group"><button class="btn small" id="t-lock"' + dis(can && sel.pl) + '>' + ICON.lock + (sel && sel.pl && sel.pl.locked ? 'ปลดล็อก' : 'ล็อก') + '</button>' +
       '<button class="btn small danger" id="t-remove"' + dis(can && sel.pl) + '>เอาออก</button></div>' +
       '<span class="spacer"></span><button class="btn small ghost" id="t-cancel">ยกเลิกการเลือก</button>') +
@@ -2123,7 +2133,154 @@
     const who = subjWho(a, idx);
     return '<span class="ch-top"><b>' + esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <span class="bc-tag">BC</span>' : '') + '</b><span class="ch-len">' + len + '</span></span>' +
       '<span class="ch-sub">' + esc(s ? s.name : '') + '</span>' +
-      (who ? '<span class="ch-who">' + esc(who) + '</span>' : '') + (extra || '');
+      (who ? '<span class="ch-who">' + esc(who) + '</span>' : '') +
+      (TT.hasWindow(a) ? '<span class="ch-win">' + ICON.clock + esc(windowLabel(a)) + '</span>' : '') + (extra || '');
+  }
+
+  const DAY_SHORT = { 'จันทร์': 'จ', 'อังคาร': 'อ', 'พุธ': 'พ', 'พฤหัสบดี': 'พฤ', 'ศุกร์': 'ศ', 'เสาร์': 'ส', 'อาทิตย์': 'อา' };
+
+  /** "จ, พ · 13:00–17:00" / "ทุกวัน ทุกเวลา" */
+  function windowLabel(a) {
+    if (!TT.hasWindow(a)) return 'ทุกวัน ทุกเวลา';
+    const w = TT.windowOf(state, a);
+    const pers = TT.periods(state.settings);
+    const P = pers.length;
+    const days = w.days ? [...w.days].sort((x, y) => x - y).map((d) => DAY_SHORT[state.settings.days[d]] || state.settings.days[d]).join(', ') : 'ทุกวัน';
+    const time = w.from === 1 && w.to === P ? 'ทุกเวลา' : pers[w.from - 1].start + '–' + pers[w.to - 1].end;
+    return days + ' · ' + time;
+  }
+
+  /** assignmentId จากสิ่งที่คลิก (การ์ด/คาบในตาราง/ปุ่ม) — ใช้กับคลิกขวา */
+  function assignmentOfNode(n) {
+    if (!n) return null;
+    const d = n.dataset;
+    const key = d.key || '';
+    if (key.startsWith('S:')) { const x = (state.sessions || []).find((y) => y.id === key.slice(2)); return x ? x.assignmentId : null; }
+    if (key) return parseKey(key).assignmentId;
+    return d.term || d.toterm || d.toweek || d.when || d.editasg || null;
+  }
+
+  /** กำหนดวันและช่วงเวลาที่ให้วิชาสอนได้ แล้ว (ถ้าเลือก) จัดอัตโนมัติให้ครบชั่วโมงในช่วงนั้น */
+  function editWindow(aid) {
+    const a = state.assignments.find((x) => x.id === aid);
+    if (!a) return;
+    if (a.recurringId) { toast('กิจกรรมประจำ: เปลี่ยนวัน/เวลาได้จากแถบด้านบนหลังคลิกก้อน หรือที่ ตั้งค่า → เงื่อนไข', true); return; }
+    const dlg = $('#dlg-when');
+    const s = state.settings;
+    const idx = TT.indexState(state);
+    const pers = TT.periods(s);
+    const P = pers.length;
+    const closed = new Set(s.closedDays || []);
+    const openDays = s.days.map((_, i) => i).filter((i) => !closed.has(s.days[i]));
+    const w = TT.windowOf(state, a);
+    const pick = new Set(w.days ? [...w.days] : openDays);
+    const term = TT.isTerm(a);
+    const hours = TT.assignmentHours(a, idx.subjects);
+    const segs = [];
+    pers.forEach((p) => { const last = segs[segs.length - 1]; if (last && last.seg === p.seg) last.to = p.no; else segs.push({ seg: p.seg, from: p.no, to: p.no }); });
+    const presets = [{ from: 1, to: P, label: 'ทั้งวัน' }].concat(segs.length > 1 ? segs.map((g) => ({ from: g.from, to: g.to, label: pers[g.from - 1].start + '–' + pers[g.to - 1].end })) : []);
+    dlg.innerHTML =
+      '<h3>วันและเวลาที่สอน</h3>' +
+      '<p class="hint"><b>' + esc(subjLabel(a, idx)) + '</b> · ' + esc(subjWho(a, idx)) + ' · ' + (term ? 'ตารางทั้งเทอม รวม ' + TT.termTotal(state, a) + ' ชม. (วันละ ' + TT.hoursPerDay(a) + ' ชม.)' : 'รายสัปดาห์ ' + hours + ' ชม. (' + TT.assignmentBlocks(a, idx.subjects).join('+') + ')') + '</p>' +
+      '<div class="when-row"><span class="when-l">วัน</span><div class="when-days">' + s.days.map((d, i) =>
+        '<button type="button" class="day-chip' + (pick.has(i) ? ' on' : '') + '" data-wd="' + i + '"' + (closed.has(d) ? ' disabled title="วัน' + esc(d) + 'ปิด (ตั้งค่า → เงื่อนไข)"' : '') + ' aria-pressed="' + pick.has(i) + '">' + esc(DAY_SHORT[d] || d) + '</button>').join('') + '</div></div>' +
+      '<div class="when-row"><span class="when-l">เวลา</span><div class="when-time">' +
+        '<label>ตั้งแต่ <select id="w-from">' + pers.map((p) => '<option value="' + p.no + '"' + (p.no === w.from ? ' selected' : '') + '>' + p.start + ' (คาบ ' + p.no + ')</option>').join('') + '</select></label>' +
+        '<label>ถึง <select id="w-to">' + pers.map((p) => '<option value="' + p.no + '"' + (p.no === w.to ? ' selected' : '') + '>' + p.end + ' (คาบ ' + p.no + ')</option>').join('') + '</select></label></div></div>' +
+      '<div class="when-row"><span class="when-l"></span><div class="when-presets">' + presets.map((x, i) => '<button type="button" class="btn small ghost" data-wp="' + i + '">' + esc(x.label) + '</button>').join('') + '</div></div>' +
+      '<div class="when-info" id="w-info"></div>' +
+      '<div class="btns spread"><span><button class="btn ghost" id="w-reset">ไม่กำหนด (ทุกวัน ทุกเวลา)</button></span>' +
+      '<span><button class="btn" id="w-cancel">ยกเลิก</button><button class="btn" id="w-save">บันทึก</button>' +
+      '<button class="btn primary" id="w-auto">บันทึกและจัดอัตโนมัติ</button></span></div>';
+    const read = () => {
+      const days = [...pick].sort((x, y) => x - y);
+      const all = openDays.every((d) => pick.has(d));
+      return { days: all ? [] : days.map((d) => s.days[d]), from: Number($('#w-from', dlg).value), to: Number($('#w-to', dlg).value) };
+    };
+    const info = () => {
+      const v = read();
+      const box = $('#w-info', dlg);
+      if (!pick.size) { box.className = 'when-info bad'; box.textContent = 'เลือกอย่างน้อย 1 วัน'; return; }
+      if (v.to < v.from) { box.className = 'when-info bad'; box.textContent = 'เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่ม'; return; }
+      const trial = { ...a, allowDays: v.days.length ? v.days : undefined, allowFrom: v.from, allowTo: v.to };
+      const cap = TT.windowCapacity(state, trial);
+      const longest = Math.max(...TT.assignmentBlocks(a, idx.subjects));
+      const msgs = [];
+      let bad = false;
+      if (term) {
+        msgs.push('ช่วงนี้สอนได้สูงสุด ' + cap.hours + ' ชม./สัปดาห์');
+        if (cap.longest < TT.hoursPerDay(a)) msgs.push('ต่อเนื่องได้วันละ ' + cap.longest + ' ชม. (น้อยกว่าวันละ ' + TT.hoursPerDay(a) + ' ชม. ระบบจะแบ่งเป็นหลายวัน)');
+        if (!cap.hours) bad = true;
+      } else {
+        msgs.push('ต้องสอน ' + hours + ' ชม./สัปดาห์ · ช่วงนี้มีเวลา ' + cap.hours + ' ชม./สัปดาห์');
+        if (cap.hours < hours) { bad = true; msgs.push('เวลาไม่พอ — เพิ่มวันหรือขยายเวลา'); }
+        else if (cap.longest < longest) { bad = true; msgs.push('ก้อนยาว ' + longest + ' คาบ แต่ช่วงนี้ต่อเนื่องได้ ' + cap.longest + ' คาบ — ขยายเวลา หรือแบ่งก้อนที่ปุ่มแก้ไข'); }
+      }
+      box.className = 'when-info' + (bad ? ' bad' : '');
+      box.textContent = msgs.join(' · ');
+    };
+    $$('[data-wd]', dlg).forEach((b) => (b.onclick = () => {
+      const d = Number(b.dataset.wd);
+      if (pick.has(d)) pick.delete(d); else pick.add(d);
+      b.classList.toggle('on', pick.has(d));
+      b.setAttribute('aria-pressed', pick.has(d));
+      info();
+    }));
+    $$('[data-wp]', dlg).forEach((b) => (b.onclick = () => {
+      const x = presets[Number(b.dataset.wp)];
+      $('#w-from', dlg).value = x.from;
+      $('#w-to', dlg).value = x.to;
+      info();
+    }));
+    $('#w-from', dlg).onchange = info;
+    $('#w-to', dlg).onchange = info;
+    $('#w-cancel', dlg).onclick = () => dlg.close();
+    $('#w-reset', dlg).onclick = () => {
+      openDays.forEach((d) => pick.add(d));
+      $$('[data-wd]', dlg).forEach((b) => { const on = pick.has(Number(b.dataset.wd)); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      $('#w-from', dlg).value = 1;
+      $('#w-to', dlg).value = P;
+      info();
+    };
+    const save = async (auto) => {
+      const v = read();
+      if (!pick.size) { toast('เลือกอย่างน้อย 1 วัน', true); return; }
+      if (v.to < v.from) { toast('เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่ม', true); return; }
+      dlg.close();
+      const r = TT.setWindow(state, a.id, v);
+      if (!r.ok) { toast(r.reason, true); return; }
+      const out = r.outside.placements.length + r.outside.sessions.length;
+      if (out && (auto || (await ask({ title: 'มี ' + out + (term ? ' วัน' : ' ก้อน') + 'ที่วางไว้นอกวัน/เวลาใหม่',
+        msg: 'นำออกเพื่อจัดใหม่ในช่วงที่กำหนดไหม? (ที่ล็อกไว้ไม่ถูกนำออก)', ok: 'นำออก', cancel: 'เก็บไว้ที่เดิม' })))) {
+        const pl = new Set(r.outside.placements);
+        const se = new Set(r.outside.sessions);
+        state.placements = state.placements.filter((x) => !pl.has(x));
+        state.sessions = state.sessions.filter((x) => !se.has(x));
+        ui.selected = null;
+        ui.termSel = null;
+      }
+      let msg = 'วิชานี้สอนได้: ' + windowLabel(a);
+      let warn = false;
+      if (auto && term) {
+        const f = TT.fillTerm(state, a.id, 1);
+        msg += ' · วางเพิ่ม ' + f.added + ' ชม.' + (f.remaining ? ' ยังเหลือ ' + f.remaining + ' ชม. (เวลาว่างในช่วงนี้ไม่พอ)' : ' ครบแล้ว');
+        warn = !!f.remaining;
+        if (!f.remaining && ui.termPick === a.id) ui.termPick = null;
+      } else if (auto) {
+        const res = TT.autoSchedule(state, { timeLimit: 3000, only: new Set([a.id]) });
+        state.placements.push(...res.placements);
+        const left = res.unplaced.length;
+        msg += res.placements.length || left ? ' · วางได้ ' + res.placements.length + ' ก้อน' + (left ? ' วางไม่ได้ ' + left + ' ก้อน (ช่วงนี้ไม่ว่างพอ)' : ' ครบแล้ว') : ' · วางครบอยู่แล้ว';
+        warn = !!left;
+        if (!left) ui.selected = null;
+      }
+      commit();
+      toast(msg, warn);
+    };
+    $('#w-save', dlg).onclick = () => save(false);
+    $('#w-auto', dlg).onclick = () => save(true);
+    info();
+    dlg.showModal();
   }
 
   /** ปุ่มสลับรูปแบบ (รายสัปดาห์ ↔ ทั้งเทอม) + ชม. + แก้ไข ของแต่ละวิชาในแผงขวา */
@@ -2136,7 +2293,8 @@
       '<button data-setplan="' + id + ':term"' + (term ? ' class="active" aria-pressed="true"' : '') + ' title="วางเป็นรายวันใน 18 สัปดาห์ จนครบชั่วโมง">ทั้งเทอม</button></div>' +
       '<label class="ph">ชม./สัปดาห์ <input type="number" min="1" max="40" data-whrs="' + id + '" value="' + TT.assignmentHours(a, idx.subjects) + '" aria-label="ชั่วโมงต่อสัปดาห์"></label>' +
       (extra || '') +
-      '<button class="btn small ghost" data-editasg="' + id + '" title="แก้ไขครู กลุ่ม ห้อง ชั่วโมง">แก้ไข</button></div>';
+      '<button class="btn small ghost" data-editasg="' + id + '" title="แก้ไขครู กลุ่ม ห้อง ชั่วโมง">แก้ไข</button>' +
+      '<button class="btn small when-btn' + (TT.hasWindow(a) ? ' set' : '') + '" data-when="' + id + '" title="กำหนดวันและช่วงเวลาที่ให้สอน (คลิกขวาที่วิชาก็ได้)">' + ICON.clock + esc(windowLabel(a)) + '</button></div>';
   }
 
   /** ผูกปุ่มของ planActs (ใช้ทั้งหน้ารายสัปดาห์และทั้งเทอม) */
@@ -2153,6 +2311,7 @@
       commit();
       toast('ตั้งเป็น ' + r.hours + ' ชม./สัปดาห์แล้ว');
     }));
+    $$('[data-when]', el).forEach((b) => (b.onclick = () => editWindow(b.dataset.when)));
     $$('[data-editasg]', el).forEach((b) => (b.onclick = () => {
       const a = state.assignments.find((x) => x.id === b.dataset.editasg);
       if (a) editAssignment(a);
@@ -2493,6 +2652,7 @@
       '<span class="tg-label">ท้าย</span>' +
       '<button class="btn small" data-trs="0,1"' + dis(x) + ' aria-label="เพิ่มชั่วโมงที่ท้าย">+1</button>' +
       '<button class="btn small" data-trs="0,-1"' + dis(x && x.len > 1) + ' aria-label="ลดชั่วโมงที่ท้าย">−1</button></div>' +
+      '<div class="tool-group"><button class="btn small" data-when="' + esc(x.assignmentId) + '" title="กำหนดวันและช่วงเวลาที่ให้วิชานี้สอนได้">วัน/เวลา…</button></div>' +
       '<div class="tool-group"><button class="btn small danger" id="ts-remove"' + dis(x) + '>เอาออก</button></div>' +
       '<span class="spacer"></span><button class="btn small ghost" id="ts-cancel">ยกเลิกการเลือก</button>' +
       '</div><div class="tool-hint' + (x || ui.termPick ? ' on' : '') + '">' + ICON.info + '<span>' + hint + '</span></div>';

@@ -597,3 +597,41 @@ test('setHours: แก้ ชม./สัปดาห์ จากแผงขว
   assert.strictEqual(TT.termTotal(s, a), 3 * TT.weeksFor(s, a));
   assert.strictEqual(TT.setHours(s, 'a1', 0).hours, 1, 'อย่างน้อย 1');
 });
+
+test('วัน/เวลาที่กำหนดของวิชา: จัดอัตโนมัติวางเฉพาะในช่วง ทั้งรายสัปดาห์และทั้งเทอม', () => {
+  const s = mini();
+  const days = s.settings.days;
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '2+2', plan: 'weekly' });
+  const r = TT.setWindow(s, 'a1', { days: [days[1], days[3]], from: 5, to: 8 });
+  assert.ok(r.ok);
+  const a = s.assignments[0];
+  assert.ok(TT.hasWindow(a));
+  assert.match(TT.checkPlacement(s, a, 0, 0, 5).reasons.join(), /เฉพาะวัน/);
+  assert.match(TT.checkPlacement(s, a, 0, 1, 1).reasons.join(), /เฉพาะ 13:00/);
+  assert.strictEqual(TT.checkPlacement(s, a, 0, 1, 5).ok, true);
+  const res = TT.autoSchedule(s, { seed: 1 });
+  assert.ok(res.complete);
+  for (const pl of res.placements) {
+    assert.ok([1, 3].includes(pl.day), 'วันที่กำหนด');
+    assert.ok(pl.start >= 5 && pl.start + 1 <= 8, 'คาบที่กำหนด');
+  }
+  // ทั้งเทอม: เติมเฉพาะวัน/คาบในช่วง จนครบชั่วโมง
+  TT.setPlan(s, 'a1', 'term');
+  a.totalHours = 12;
+  const f = TT.fillTerm(s, 'a1', 1);
+  assert.strictEqual(f.remaining, 0);
+  for (const x of s.sessions) assert.ok([1, 3].includes(x.day) && x.start >= 5 && x.start + x.len - 1 <= 8);
+  // ย้ายช่วงแล้วรายงานที่อยู่นอกช่วง · ล้างช่วง = ไม่กำหนด
+  assert.ok(TT.setWindow(s, 'a1', { days: [days[0]] }).outside.sessions.length > 0);
+  TT.setWindow(s, 'a1', { days: [], from: 1, to: 13 });
+  assert.strictEqual(TT.hasWindow(a), false);
+  assert.strictEqual(TT.setWindow(s, 'a1', { from: 2, to: 3 }).ok, true);
+  assert.deepStrictEqual(TT.windowCapacity(s, a).longest, 2);
+});
+
+test('autoSchedule only: จัดเฉพาะวิชาที่ระบุ', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '2' }, { id: 'a2', teacherId: 't2', subjectId: 's1', groupIds: ['g2'], blocks: '2' });
+  const res = TT.autoSchedule(s, { seed: 1, only: new Set(['a2']) });
+  assert.deepStrictEqual(res.placements.map((p) => p.assignmentId), ['a2']);
+});
