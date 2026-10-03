@@ -221,6 +221,9 @@
     ['print', 'พิมพ์'],
   ];
 
+  const SCROLL_BOXES = ['.elist', '.side-panel', '.pool-list', '.grid-card'];
+  let lastScrollKey = '';
+
   function render() {
     $('#steps').innerHTML = TABS.map(([k, label], i) =>
       '<button class="step' + (ui.tab === k ? ' active' : '') + '" data-tab="' + k + '"' + (ui.tab === k ? ' aria-current="page"' : '') + '>' +
@@ -236,6 +239,10 @@
 
     const main = $('#main');
     const keepY = window.scrollY;
+    // กล่องที่เลื่อนได้ข้างใน (รายชื่อซ้าย แผงขวา ตาราง) ให้อยู่ตำแหน่งเดิมหลังวาดใหม่ ถ้ายังอยู่หน้าเดิม
+    const scrollKey = ui.tab + '|' + ui.view + '|' + ui.cal;
+    const keepBoxes = scrollKey === lastScrollKey ? SCROLL_BOXES.map((sel) => $$(sel, main).map((n) => [n.scrollTop, n.scrollLeft])) : null;
+    lastScrollKey = scrollKey;
     main.className = 'tab-' + ui.tab;
     const intro = isEmpty() && !['rules', 'check', 'home'].includes(ui.tab)
       ? '<div class="notice">' + ICON.info + '<span>ยังไม่มีข้อมูล เริ่มกรอกที่ <b>ข้อมูล</b> หรือลองใช้ข้อมูลตัวอย่างก่อน</span><button class="btn small" id="load-sample">โหลดข้อมูลตัวอย่าง</button></div>'
@@ -247,6 +254,17 @@
     if (ls) ls.onclick = loadSample;
     // วาดใหม่แล้วให้อยู่ตำแหน่งเดิม (เช่น กำลังทำสัปดาห์ที่ 10 จะไม่เด้งกลับขึ้นบน)
     if (window.scrollY !== keepY) window.scrollTo(0, keepY);
+    if (keepBoxes) SCROLL_BOXES.forEach((sel, i) => $$(sel, main).forEach((n, j) => {
+      const k = keepBoxes[i][j];
+      if (k) { n.scrollTop = k[0]; n.scrollLeft = k[1]; }
+    }));
+    // รายการที่เลือกอยู่ต้องมองเห็นในรายชื่อซ้ายเสมอ (เลื่อนเฉพาะกล่องรายชื่อ ไม่เลื่อนทั้งหน้า)
+    const list = $('.elist', main);
+    const act = list && $('.eitem.active', list);
+    if (act) {
+      const top = act.offsetTop - list.offsetTop;
+      if (top < list.scrollTop || top + act.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = Math.max(0, top - list.clientHeight / 3);
+    }
   }
 
   function go(tab) {
