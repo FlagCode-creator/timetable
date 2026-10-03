@@ -1028,6 +1028,17 @@
     return res;
   }
 
+  /** ตั้ง ชม./สัปดาห์ ของรายการ (ตรงกับ ท+ป ของวิชา = ใช้ค่าเริ่มต้น ไม่งั้นแบ่งก้อนอัตโนมัติ) */
+  function setHours(state, assignmentId, n) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId) return { ok: false, reason: 'เปลี่ยนไม่ได้' };
+    n = Math.max(1, Math.min(40, Math.round(Number(n) || 1)));
+    const s = a.subjectId ? state.subjects.find((x) => x.id === a.subjectId) : null;
+    if (isTerm(a)) a.blocks = String(n);
+    else a.blocks = s && subjectHours(s) === n ? '' : defaultPattern(n, a.blockCourse);
+    return { ok: true, hours: n };
+  }
+
   /**
    * จัดตารางทั้งเทอมอัตโนมัติหลายวิชา: วิชาชั่วโมงเหลือมากก่อน เติมทีละวันตั้งแต่สัปดาห์ที่ 1
    * วางเฉพาะช่วงที่ครู/กลุ่มว่าง (ไม่ทับตารางรายสัปดาห์และวิชาทั้งเทอมอื่น) · คืน { added, remaining, subjects }
@@ -1736,6 +1747,7 @@
     placementKey,
     resourceKeys,
     sanitizePlacements,
+    setHours,
     allBlocks,
     cellKey,
     checkPlacement,

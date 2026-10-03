@@ -780,3 +780,12 @@ div.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; co
   .page.detail { height: auto; min-height: 210mm; overflow: visible; }
   .page:last-child { page-break-after: auto; break-after: auto; }
 }
+
+/* แผงขวา: สลับรายสัปดาห์ ↔ ทั้งเทอม แก้ชั่วโมง แก้ไข */
+.plan-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.plan-acts .seg.mini { padding: 2px; }
+.plan-acts .seg.mini button { min-height: 28px; padding: 0 10px; font-size: 12px; }
+.plan-acts .ph { display: inline-flex; align-items: center; gap: 4px; }
+.plan-acts input { width: 3.4em; height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; background: var(--panel); font-size: 13px; }
+.ti-head { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ti-head .muted { font-size: 12px; }

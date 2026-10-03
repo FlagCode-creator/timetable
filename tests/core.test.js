@@ -583,3 +583,17 @@ test('เปลี่ยนวิชาระหว่างรายสัป�
   assert.ok(!s.sessions.some((x) => x.assignmentId === wk.id));
   assert.strictEqual(TT.setPlan(s, s.assignments.find((a) => a.recurringId).id, 'term').ok, false, 'Home Room เปลี่ยนไม่ได้');
 });
+
+test('setHours: แก้ ชม./สัปดาห์ จากแผงขวา ทั้งรายสัปดาห์และทั้งเทอม', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's2', groupIds: ['g1'], blocks: '', plan: 'weekly' });
+  const a = s.assignments[0];
+  assert.strictEqual(TT.setHours(s, 'a1', 6).hours, 6);
+  assert.strictEqual(TT.assignmentHours(a, new Map(s.subjects.map((x) => [x.id, x]))), 6);
+  TT.setHours(s, 'a1', 4); // = ท+ป ของวิชา → กลับไปใช้ค่าเริ่มต้น
+  assert.strictEqual(a.blocks, '');
+  TT.setPlan(s, 'a1', 'term');
+  TT.setHours(s, 'a1', 3);
+  assert.strictEqual(TT.termTotal(s, a), 3 * TT.weeksFor(s, a));
+  assert.strictEqual(TT.setHours(s, 'a1', 0).hours, 1, 'อย่างน้อย 1');
+});

@@ -2094,14 +2094,58 @@
     return buildGrid({ state, items, editable: true, unavailable: new Set(ent.unavailable || []), blocked: TT.blockedCells(state.settings) });
   }
 
-  function blockLabel(a, len, idx, extra) {
-    const s = a.subjectId ? idx.subjects.get(a.subjectId) : null;
-    const who = ui.view === 'teacher'
+  function subjWho(a, idx) {
+    return ui.view === 'teacher'
       ? a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean).join(', ')
       : (idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู';
+  }
+
+  function blockLabel(a, len, idx, extra) {
+    const s = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+    const who = subjWho(a, idx);
     return '<span class="ch-top"><b>' + esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <span class="bc-tag">BC</span>' : '') + '</b><span class="ch-len">' + len + '</span></span>' +
       '<span class="ch-sub">' + esc(s ? s.name : '') + '</span>' +
       (who ? '<span class="ch-who">' + esc(who) + '</span>' : '') + (extra || '');
+  }
+
+  /** ปุ่มสลับรูปแบบ (รายสัปดาห์ ↔ ทั้งเทอม) + ชม. + แก้ไข ของแต่ละวิชาในแผงขวา */
+  function planActs(a, idx, extra) {
+    const term = TT.isTerm(a);
+    const id = esc(a.id);
+    return '<div class="plan-acts">' +
+      '<div class="seg mini" role="group" aria-label="รูปแบบการจัด">' +
+      '<button data-setplan="' + id + ':weekly"' + (term ? '' : ' class="active" aria-pressed="true"') + ' title="สอนทุกสัปดาห์ เวลาเดิม">รายสัปดาห์</button>' +
+      '<button data-setplan="' + id + ':term"' + (term ? ' class="active" aria-pressed="true"' : '') + ' title="วางเป็นรายวันใน 18 สัปดาห์ จนครบชั่วโมง">ทั้งเทอม</button></div>' +
+      '<label class="ph">ชม./สัปดาห์ <input type="number" min="1" max="40" data-whrs="' + id + '" value="' + TT.assignmentHours(a, idx.subjects) + '" aria-label="ชั่วโมงต่อสัปดาห์"></label>' +
+      (extra || '') +
+      '<button class="btn small ghost" data-editasg="' + id + '" title="แก้ไขครู กลุ่ม ห้อง ชั่วโมง">แก้ไข</button></div>';
+  }
+
+  /** ผูกปุ่มของ planActs (ใช้ทั้งหน้ารายสัปดาห์และทั้งเทอม) */
+  function bindPlanActs(el) {
+    $$('[data-setplan]', el).forEach((b) => (b.onclick = () => {
+      const [id, plan] = b.dataset.setplan.split(':');
+      const a = state.assignments.find((x) => x.id === id);
+      if (!a || (plan === 'term') === TT.isTerm(a)) return;
+      switchPlan(id, plan);
+    }));
+    $$('[data-whrs]', el).forEach((inp) => (inp.onchange = () => {
+      const r = TT.setHours(state, inp.dataset.whrs, inp.value);
+      if (!r.ok) { toast(r.reason, true); return; }
+      commit();
+      toast('ตั้งเป็น ' + r.hours + ' ชม./สัปดาห์แล้ว');
+    }));
+    $$('[data-editasg]', el).forEach((b) => (b.onclick = () => {
+      const a = state.assignments.find((x) => x.id === b.dataset.editasg);
+      if (a) editAssignment(a);
+    }));
+    $$('[data-unplace]', el).forEach((b) => (b.onclick = async () => {
+      const id = b.dataset.unplace;
+      if (!(await ask({ tone: 'danger', title: 'นำวิชานี้ออกจากตารางรายสัปดาห์?', msg: 'คาบที่วางไว้ (รวมที่ล็อก) จะกลับไปอยู่ในรายการ "ยังไม่ได้จัด"', ok: 'นำออก' }))) return;
+      state.placements = state.placements.filter((p) => p.assignmentId !== id);
+      if (ui.selected && ui.selected.startsWith(id + '#')) ui.selected = null;
+      commit();
+    }));
   }
 
   function sidePanel(ent, blocks, conflicts) {
@@ -2120,14 +2164,26 @@
             blockLabel(b.assignment, b.len + ' คาบ', idx) + '</button>').join('')
           : '<p class="ok-line">' + ICON.check + 'จัดครบแล้ว</p>') +
         '</section>';
+      // รายวิชาทั้งหมดของครู/กลุ่มนี้ สลับรูปแบบ แก้ ชม. แก้ไข ได้ที่นี่
+      const weeklyMine = state.assignments.filter((a) => !TT.isTerm(a) && !a.recurringId && v.match(a, ent.id));
+      if (weeklyMine.length) {
+        html += '<section class="card"><div class="card-head"><h2>วิชารายสัปดาห์</h2><span class="muted">' + weeklyMine.length + ' วิชา</span></div>' +
+          '<p class="hint">สลับเป็น <b>ทั้งเทอม</b> ได้ทุกเมื่อ และสลับกลับได้ · แก้ ชม./สัปดาห์ ได้ทันที</p>' +
+          weeklyMine.map((a) => {
+            const all = blocks.filter((b) => b.assignment.id === a.id);
+            const placed = all.filter((b) => b.placement).length;
+            return '<div class="term-item"><div class="ti-head"><b>' + esc(subjLabel(a, idx)) + '</b><span class="muted">' + esc(subjWho(a, idx)) + ' · วางแล้ว ' + placed + '/' + all.length + ' ก้อน</span></div>' +
+              planActs(a, idx, '<button class="btn small ghost" data-unplace="' + esc(a.id) + '"' + (placed ? '' : ' disabled') + '>นำออก</button>') + '</div>';
+          }).join('') + '</section>';
+      }
       const termMine = state.assignments.filter((a) => TT.isTerm(a) && v.match(a, ent.id));
       if (termMine.length) {
         html += '<section class="card soft"><div class="card-head"><h2>วิชาทั้งเทอม</h2><span class="muted">' + termMine.length + ' วิชา</span></div>' +
-          '<p class="hint">ลากลงตารางด้านซ้าย = เปลี่ยนเป็นรายสัปดาห์ (สอนทุกสัปดาห์)</p>' +
+          '<p class="hint">ลากลงตารางด้านซ้าย หรือกด <b>รายสัปดาห์</b> = เปลี่ยนเป็นสอนทุกสัปดาห์</p>' +
           termMine.map((a) => {
             const st = TT.termStatus(state, a, idx.subjects);
-            return '<button class="chip ' + P.colorClass(state, a) + '" draggable="true" data-toweek="' + esc(a.id) + '" title="ลากลงตารางรายสัปดาห์ หรือคลิกเพื่อเปลี่ยนเป็นรายสัปดาห์">' +
-              blockLabel(a, st.placed + '/' + st.total + ' ชม.', idx) + '</button>';
+            return '<div class="term-item"><button class="chip ' + P.colorClass(state, a) + '" draggable="true" data-toweek="' + esc(a.id) + '" title="ลากลงตารางรายสัปดาห์">' +
+              blockLabel(a, st.placed + '/' + st.total + ' ชม.', idx) + '</button>' + planActs(a, idx) + '</div>';
           }).join('') +
           '<button class="btn small" id="go-term">ไปที่ตารางทั้งเทอม →</button></section>';
       }
@@ -2267,8 +2323,8 @@
     };
     $$('[data-toweek]', el).forEach((c) => {
       c.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'toweek:' + c.dataset.toweek);
-      c.onclick = () => switchPlan(c.dataset.toweek, 'weekly');
     });
+    bindPlanActs(el);
     $$('.chip[data-key]', el).forEach((c) => (c.onclick = () => { ui.selected = ui.selected === c.dataset.key ? null : c.dataset.key; render(); }));
     $$('[data-mode]', el).forEach((b) => (b.onclick = () => { ui.mode = b.dataset.mode; ui.selected = null; render(); }));
     const on = (sel, fn) => { const b = $(sel, el); if (b) b.onclick = fn; };
@@ -2512,11 +2568,9 @@
             '<span class="ch-who">ครบ ' + st.total + ' ชม. = ' + st.fullDays + ' วัน' + (st.extra ? ' + ' + st.extra + ' ชม.' : '') + ' · วางแล้ว ' + st.days + ' วัน</span>') +
           '</button>' +
           '<div class="term-ctl"><label>วันละ <input type="number" min="1" max="13" data-hpd="' + esc(a.id) + '" value="' + st.hpd + '" aria-label="ชั่วโมงต่อวัน"> ชม.</label>' +
-          '<label>เริ่มคาบ <select data-tstart="' + esc(a.id) + '" aria-label="คาบเริ่มที่ต้องการ">' + simpleOptions(TT.periods(state.settings).map((p) => [p.no, String(p.no)]), a.termStart || 1) + '</select></label></div>' +
-          '<div class="term-ctl"><label>เติมอัตโนมัติตั้งแต่สัปดาห์ <select data-tfrom="' + esc(a.id) + '" aria-label="เริ่มสัปดาห์">' +
-          simpleOptions(Array.from({ length: state.settings.weeks }, (_, i) => i + 1), 1) + '</select></label>' +
-          '<button class="btn small" data-tfill="' + esc(a.id) + '"' + (st.remaining ? '' : ' disabled') + '>เติม</button>' +
-          '<button class="btn small ghost" data-tclr="' + esc(a.id) + '"' + (st.placed ? '' : ' disabled') + '>ล้าง</button></div></div>';
+          '<label>เริ่มคาบ <select data-tstart="' + esc(a.id) + '" aria-label="คาบเริ่มที่ต้องการ">' + simpleOptions(TT.periods(state.settings).map((p) => [p.no, String(p.no)]), a.termStart || 1) + '</select></label>' +
+          '<label>รวมทั้งเทอม <input type="number" min="1" data-ttot="' + esc(a.id) + '" value="' + (Number(a.totalHours) > 0 ? a.totalHours : '') + '" placeholder="' + (TT.assignmentHours(a, idx.subjects) * TT.weeksFor(state, a)) + '" aria-label="ชั่วโมงทั้งเทอม (เว้นว่าง = อัตโนมัติ)"> ชม.</label></div>' +
+          planActs(a, idx, '<button class="btn small ghost" data-tclr="' + esc(a.id) + '"' + (st.placed ? '' : ' disabled') + '>ล้าง</button>') + '</div>';
       }).join('');
     }
     html += '</section>';
@@ -2524,9 +2578,9 @@
     const weekly = state.assignments.filter((a) => !TT.isTerm(a) && !a.recurringId && v.match(a, ent.id));
     if (weekly.length) {
       html += '<section class="card soft"><div class="card-head"><h2>วิชารายสัปดาห์</h2><span class="muted">' + weekly.length + ' วิชา</span></div>' +
-        '<p class="hint">ลากลงช่องในสัปดาห์ไหนก็ได้ = เปลี่ยนเป็นทั้งเทอม แล้ววางที่ช่องนั้น · คลิก = เปลี่ยนแล้วเลือกไว้ให้คลิกวาง</p>' +
-        weekly.map((a) => '<button class="chip ' + P.colorClass(state, a) + '" draggable="true" data-toterm="' + esc(a.id) + '" title="ลากลงตารางทั้งเทอม">' +
-          blockLabel(a, TT.assignmentHours(a, idx.subjects) + ' ชม./สัปดาห์', idx) + '</button>').join('') + '</section>';
+        '<p class="hint">ลากลงช่องในสัปดาห์ไหนก็ได้ หรือกด <b>ทั้งเทอม</b> = เปลี่ยนเป็นทั้งเทอม (ไม่เติมให้อัตโนมัติ วางเองได้ตามต้องการ)</p>' +
+        weekly.map((a) => '<div class="term-item"><button class="chip ' + P.colorClass(state, a) + '" draggable="true" data-toterm="' + esc(a.id) + '" title="ลากลงตารางทั้งเทอม">' +
+          blockLabel(a, TT.assignmentHours(a, idx.subjects) + ' ชม./สัปดาห์', idx) + '</button>' + planActs(a, idx) + '</div>').join('') + '</section>';
     }
     const bad = ui.termSel && conflicts.byPlacement.get('S:' + ui.termSel);
     if (bad) html = badBox(bad) + html;
@@ -2633,8 +2687,8 @@
     }));
     $$('[data-toterm]', el).forEach((c) => {
       c.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'toterm:' + c.dataset.toterm);
-      c.onclick = () => switchPlan(c.dataset.toterm, 'term');
     });
+    bindPlanActs(el);
     const ta = $('#term-auto', el);
     if (ta) ta.onclick = () => {
       const ids = state.assignments.filter((a) => TT.isTerm(a) && v.match(a, ent.id)).map((a) => a.id);
@@ -2659,12 +2713,12 @@
       a.termStart = Number(sel.value) || 1;
       commit();
     }));
-    $$('[data-tfill]', el).forEach((b) => (b.onclick = () => {
-      const id = b.dataset.tfill;
-      const from = Number($('[data-tfrom="' + id + '"]', el).value) || 1;
-      const r = TT.fillTerm(state, id, from);
+    $$('[data-ttot]', el).forEach((inp) => (inp.onchange = () => {
+      const a = state.assignments.find((x) => x.id === inp.dataset.ttot);
+      const n = Math.round(Number(inp.value) || 0);
+      a.totalHours = n > 0 ? n : '';
       commit();
-      toast(r.remaining ? 'เติมได้ ' + r.added + ' ชม. ยังเหลือ ' + r.remaining + ' ชม. (เวลาไม่พอ)' : 'เติมครบแล้ว (' + r.added + ' ชม.)', !!r.remaining);
+      toast('ชั่วโมงทั้งเทอม ' + TT.termTotal(state, a) + ' ชม.' + (n > 0 ? '' : ' (อัตโนมัติ)'));
     }));
     $$('[data-tclr]', el).forEach((b) => (b.onclick = async () => {
       if (!(await ask({ tone: 'danger', title: 'ล้างวันที่วางไว้ทั้งหมดของวิชานี้?', ok: 'ล้าง' }))) return;
