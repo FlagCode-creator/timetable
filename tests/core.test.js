@@ -538,3 +538,14 @@ test('รายวิชาของกลุ่ม: เพิ่ม/เอา�
   assert.deepStrictEqual(TT.removeSubjectFromGroup(s, act.id, 'g1'), { deleted: true });
   assert.ok(!s.placements.some((p) => p.assignmentId === act.id), 'คาบที่จัดไว้ถูกลบด้วย');
 });
+
+test('ชั้นปีอ่านจากรหัสก่อนชื่อ (ชื่อค้างชั้นปีก่อน) และเตือนรุ่นที่จบแล้ว', () => {
+  const s = { settings: { year: '2569' } };
+  assert.strictEqual(TT.groupGrade(s, { code: '682190101', name: 'ปวช.1 สารสนเทศ 68' }), 'ปวช.2');
+  assert.match(TT.gradeWarning(s, { code: '682190101', name: 'ปวช.1 สารสนเทศ 68' }), /ชื่อบอก ปวช.1 แต่รหัสบอก ปวช.2/);
+  assert.strictEqual(TT.groupGrade(s, { code: '673190501', name: 'ส.2 แอนิเมชัน 67 ตรง' }), '', 'ปวส. รุ่น 67 จบแล้วในปี 2569');
+  assert.match(TT.gradeWarning(s, { code: '673190501', name: 'ส.2 แอนิเมชัน 67 ตรง' }), /จบไปแล้ว/);
+  assert.strictEqual(TT.groupGrade(s, { code: '', name: 'ปวช. 3 ช่างยนต์' }), 'ปวช.3', 'ไม่มีรหัส ใช้ชื่อ');
+  assert.strictEqual(TT.groupGrade(s, { code: '692190101', level: 'ปวช.1/2', name: 'x' }), 'ปวช.1', 'ช่องระดับชั้นมาก่อน');
+  assert.strictEqual(TT.gradeWarning(s, { code: '692190101', name: 'ปวช1.สารสนเทศ 69' }), '');
+});

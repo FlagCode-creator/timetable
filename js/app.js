@@ -1155,7 +1155,8 @@
         return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k] == null ? '' : it[f.k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : f.list ? ' placeholder="พิมพ์หรือเลือก"' : '') + (f.list ? ' list="list-' + f.k + '"' : '') + ' style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
       (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
-      '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') + usageCell(kind, it) + '</td>' +
+      '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') +
+        (kind === 'groups' && TT.gradeWarning(state, it) ? '<span class="badge warn" title="' + esc(TT.gradeWarning(state, it)) + '">ชั้นปี?</span> ' : '') + usageCell(kind, it) + '</td>' +
       '<td><button class="btn icon danger" data-del aria-label="ลบ">' + ICON.x + '</button></td></tr>';
     let html;
     if (kind === 'groups') {
@@ -1167,7 +1168,7 @@
       html = '';
       for (const grade of grades) {
         const inGrade = sorted.filter((y) => y.grade === grade);
-        html += '<tr class="grade-row"><td colspan="' + cols + '"><div class="gr-flex"><span><b>' + esc(grade || 'ไม่ทราบชั้นปี') + '</b> <span class="muted">' +
+        html += '<tr class="grade-row"><td colspan="' + cols + '"><div class="gr-flex"><span><b>' + esc(grade || 'ไม่ทราบชั้นปี / ควรตรวจ (เช่น รุ่นที่จบแล้ว)') + '</b> <span class="muted">' +
           (inGrade.length ? inGrade.length + ' กลุ่ม · ' + esc([...new Set(inGrade.map((y) => y.dept))].join(' · ')) : 'ยังไม่มีกลุ่ม') + '</span></span>' +
           (grade ? '<button class="btn small" data-addgrade="' + esc(grade) + '">+ เพิ่มกลุ่ม ' + esc(grade) + '</button>' : '') + '</div></td></tr>';
         inGrade.forEach((x, i) => (html += rowHtml(x.g, i % 2 === 1)));

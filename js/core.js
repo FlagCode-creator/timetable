@@ -234,15 +234,35 @@
       const s2 = String(t || '').trim().match(/^ส\.?\s*(\d)/);
       return s2 ? 'ปวส.' + s2[1] : '';
     };
-    const t = fromText(g.level) || fromText(g.name);
-    if (t) return t;
-    const c = String(g.code || '').trim();
+    // ช่องระดับชั้นที่กรอกเอง → รหัสกลุ่ม (แม่นกว่าชื่อ ซึ่งมักค้างชั้นของปีก่อน) → ชื่อกลุ่ม
+    const lv = fromText(g.level);
+    if (lv) return lv;
+    const byCode = gradeFromCode(state, g);
+    if (byCode) return byCode;
+    return /^\d{9}$/.test(String(g.code || '').trim()) && Number((state && state.settings && state.settings.year) || 0) ? '' : fromText(g.name); // รหัสบอกว่าจบแล้ว/ยังไม่เข้า → ไม่ทราบชั้นปี (ให้ตรวจ)
+  }
+
+  /** ชั้นปีจากรหัสกลุ่ม 9 หลัก: ปีที่เข้า (2 หลักแรก) + ระดับ (หลักที่ 3: 2 = ปวช. 3 = ปวส.) เทียบกับปีการศึกษา */
+  function gradeFromCode(state, g) {
+    const c = String((g && g.code) || '').trim();
     const year = Number((state && state.settings && state.settings.year) || 0) % 100;
-    if (/^\d{9}$/.test(c) && year && (c[2] === '2' || c[2] === '3')) {
-      const max = c[2] === '2' ? 3 : 2;
-      const n = year - Number(c.slice(0, 2)) + 1;
-      if (n >= 1 && n <= max) return (c[2] === '2' ? 'ปวช.' : 'ปวส.') + n;
-    }
+    if (!/^\d{9}$/.test(c) || !year || (c[2] !== '2' && c[2] !== '3')) return '';
+    const max = c[2] === '2' ? 3 : 2;
+    const n = year - Number(c.slice(0, 2)) + 1;
+    return n >= 1 && n <= max ? (c[2] === '2' ? 'ปวช.' : 'ปวส.') + n : '';
+  }
+
+  /** ชื่อกลุ่มบอกชั้นไม่ตรงกับรหัส (เช่น ชื่อยังเป็นชั้นของปีก่อน) หรือรหัสบอกว่าจบไปแล้ว → ข้อความเตือน */
+  function gradeWarning(state, g) {
+    const c = String((g && g.code) || '').trim();
+    const year = Number((state && state.settings && state.settings.year) || 0) % 100;
+    if (!/^\d{9}$/.test(c) || !year || (c[2] !== '2' && c[2] !== '3')) return '';
+    const byCode = gradeFromCode(state, g);
+    const m = String(g.name || '').match(/(ปวช|ปวส)\.?\s*(\d)/) || String(g.name || '').trim().match(/^(ส)\.?\s*(\d)/);
+    const byName = m ? (m[1] === 'ส' ? 'ปวส.' : m[1] + '.') + m[2] : '';
+    const n = year - Number(c.slice(0, 2)) + 1;
+    if (!byCode) return n > (c[2] === '2' ? 3 : 2) ? 'รหัสกลุ่มบอกว่ารุ่นนี้จบไปแล้วในปีการศึกษา 25' + year : 'รหัสกลุ่มยังไม่ถึงปีที่เข้าเรียน';
+    if (byName && byName !== byCode) return 'ชื่อบอก ' + byName + ' แต่รหัสบอก ' + byCode + ' (ปี 25' + year + ')';
     return '';
   }
 
@@ -1687,6 +1707,7 @@
     recurringSlotOk,
     syncRecurringPlacements,
     groupGrade,
+    gradeWarning,
     gradeRank,
     GRADE_ORDER,
     syncAdvisors,
