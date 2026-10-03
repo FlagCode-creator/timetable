@@ -150,8 +150,11 @@
     return crossBreaks || pers[start - 1].seg === pers[start + len - 2].seg;
   }
 
+  /** ชั่วโมงต่อสัปดาห์ของวิชา: ที่กรอกเองในคลังรายวิชา (ถ้ามี) ไม่งั้น ท + ป */
   function subjectHours(s) {
-    return s ? (Number(s.t) || 0) + (Number(s.p) || 0) : 0;
+    if (!s) return 0;
+    const own = Number(s.hours);
+    return own > 0 ? own : (Number(s.t) || 0) + (Number(s.p) || 0);
   }
 
   /** รูปแบบการแบ่งคาบเริ่มต้นจากจำนวนชั่วโมง เช่น 3 → "3", 4 → "2+2", 6 → "3+3" */

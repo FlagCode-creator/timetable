@@ -549,3 +549,20 @@ test('ชั้นปีอ่านจากรหัสก่อนชื่�
   assert.strictEqual(TT.groupGrade(s, { code: '692190101', level: 'ปวช.1/2', name: 'x' }), 'ปวช.1', 'ช่องระดับชั้นมาก่อน');
   assert.strictEqual(TT.gradeWarning(s, { code: '692190101', name: 'ปวช1.สารสนเทศ 69' }), '');
 });
+
+test('ชม./สัปดาห์ของวิชากรอกเองได้ (ไม่กรอก = ท+ป) และรายการที่ใช้วิชานั้นตามไปด้วย', () => {
+  const s = mini();
+  const sj = { id: 'pj', code: '30101-2055', name: 'โครงงานด้านเทคนิคเครื่องกล', t: 0, p: 12, n: 4 };
+  s.subjects.push(sj);
+  assert.strictEqual(TT.subjectHours(sj), 12);
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 'pj', groupIds: ['g1'], blocks: '' });
+  s.placements.push({ assignmentId: 'a1', blockIndex: 0, day: 0, start: 1, locked: false });
+  sj.hours = 4;
+  assert.strictEqual(TT.subjectHours(sj), 4);
+  assert.strictEqual(TT.assignmentHours(s.assignments[0], new Map([['pj', sj]])), 4);
+  TT.sanitizePlacements(s);
+  assert.ok(s.placements.every((p) => p.blockIndex < TT.assignmentBlocks(s.assignments[0], new Map([['pj', sj]])).length));
+  assert.strictEqual(TT.teacherSummary(s, 't1').totals.h, 4);
+  sj.hours = '';
+  assert.strictEqual(TT.subjectHours(sj), 12, 'ล้างช่อง = กลับไปใช้ ท+ป');
+});

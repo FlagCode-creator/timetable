@@ -812,8 +812,9 @@
         { k: 't', label: 'ท.', type: 'num', w: 3 },
         { k: 'p', label: 'ป.', type: 'num', w: 3 },
         { k: 'n', label: 'น.', type: 'num', w: 3 },
+        { k: 'hours', label: 'ชม./สัปดาห์', type: 'num', w: 3 },
       ],
-      pasteHint: 'คอลัมน์: รหัสวิชา | ชื่อรายวิชา | ท. | ป. | น.  (หรือ รหัสวิชา | ชื่อรายวิชา | 1-2-2)',
+      pasteHint: 'คอลัมน์: รหัสวิชา | ชื่อรายวิชา | ท. | ป. | น. | ชม./สัปดาห์ (ไม่ใส่ = ท+ป)  (หรือ รหัสวิชา | ชื่อรายวิชา | 1-2-2)',
     },
     rooms: {
       title: 'ห้อง/สถานที่', prefix: 'r', key: 'name',
@@ -929,7 +930,7 @@
       (ui.dataTab === 'subjects' ? '<p class="hint data-note">' + ICON.info + ' หน้านี้เป็น<b>คลังรายวิชา</b> เพิ่มที่นี่แล้วยังไม่เป็นของครูคนไหน — กด <b>"มอบให้ครู →"</b> ท้ายแถว หรือไปที่ <b>มอบวิชาให้ครู</b> → การ์ดครู → <b>"+ เพิ่มวิชาให้ครูคนนี้"</b></p>' : '') +
       '<div class="table-wrap"><table class="data"><thead><tr>' +
       cfg.fields.map((f) => '<th>' + esc(f.label) + '</th>').join('') +
-      (ui.dataTab === 'subjects' ? '<th>ชม./สัปดาห์</th>' : '') + '<th title="นับให้อัตโนมัติ คลิกตัวเลขเพื่อไปดู">' + USAGE_LABEL[ui.dataTab] + '</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
+'<th title="นับให้อัตโนมัติ คลิกตัวเลขเพื่อไปดู">' + USAGE_LABEL[ui.dataTab] + '</th><th></th></tr></thead><tbody id="dbody"></tbody></table></div>' +
       '<datalist id="dept-list"></datalist>' +
       cfg.fields.filter((f) => f.list).map((f) => '<datalist id="list-' + f.k + '">' +
         [...new Set([...f.list, ...state[ui.dataTab].map((x) => norm(x[f.k])).filter(Boolean)])].map((v) => '<option value="' + esc(v) + '"></option>').join('') + '</datalist>').join('');
@@ -1151,10 +1152,10 @@
           return '<td><input data-f="' + f.k + '" list="dept-list" aria-label="' + esc(f.label) + '" placeholder="' + esc(guess ? guess + ' ?' : 'พิมพ์หรือเลือก') + '" value="' + esc(deptName(it[f.k])) + '" style="min-width:' + (f.w || 8) + 'em"></td>';
         }
         if (f.type === 'bool') return '<td class="c"><input type="checkbox" data-f="' + f.k + '" aria-label="' + esc(f.label) + '"' + (it[f.k] ? ' checked' : '') + '></td>';
-        const ph = kind === 'groups' && f.k === 'level' && !norm(it.level) ? TT.groupGrade(state, it) : '';
+        const ph = kind === 'groups' && f.k === 'level' && !norm(it.level) ? TT.groupGrade(state, it)
+          : kind === 'subjects' && f.k === 'hours' ? String((Number(it.t) || 0) + (Number(it.p) || 0)) : '';
         return '<td' + (f.type === 'num' ? ' class="num"' : '') + '><input data-f="' + f.k + '" aria-label="' + esc(f.label) + '" value="' + esc(it[f.k] == null ? '' : it[f.k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : f.list ? ' placeholder="พิมพ์หรือเลือก"' : '') + (f.list ? ' list="list-' + f.k + '"' : '') + ' style="min-width:' + (f.w || 8) + 'em"' + (f.type === 'num' ? ' inputmode="numeric"' : '') + '></td>';
       }).join('') +
-      (kind === 'subjects' ? '<td class="c hrs">' + TT.subjectHours(it) + '</td>' : '') +
       '<td class="c">' + (dupIds.has(it.id) ? '<button class="badge bad-b" data-go-check>ซ้ำ</button> ' : '') +
         (kind === 'groups' && TT.gradeWarning(state, it) ? '<span class="badge warn" title="' + esc(TT.gradeWarning(state, it)) + '">ชั้นปี?</span> ' : '') + usageCell(kind, it) + '</td>' +
       '<td><button class="btn icon danger" data-del aria-label="ลบ">' + ICON.x + '</button></td></tr>';
@@ -1230,7 +1231,11 @@
         }
         const oldVal = item[f.k];
         item[f.k] = f.type === 'bool' ? inp.checked : f.type === 'num' ? (inp.value === '' ? '' : Number(inp.value) || 0) : inp.value.trim();
-        if (kind === 'subjects') $('.hrs', tr).textContent = TT.subjectHours(item);
+        if (kind === 'subjects') {
+          const hi = $('[data-f="hours"]', tr);
+          if (hi) hi.placeholder = String((Number(item.t) || 0) + (Number(item.p) || 0)); // ไม่กรอก = ท+ป
+          TT.sanitizePlacements(state); // ชั่วโมงเปลี่ยน → ก้อนคาบที่จัดไว้ที่ไม่ตรงแล้วกลับไปรอจัด
+        }
         // เปลี่ยนชื่อครู → ชื่อครูที่ปรึกษาในข้อมูลกลุ่มเปลี่ยนตาม
         if (kind === 'teachers' && f.k === 'name' && oldVal) {
           const k = norm(oldVal).replace(/[\s.]/g, '');
