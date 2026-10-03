@@ -566,3 +566,20 @@ test('ชม./สัปดาห์ของวิชากรอกเองไ
   sj.hours = '';
   assert.strictEqual(TT.subjectHours(sj), 12, 'ล้างช่อง = กลับไปใช้ ท+ป');
 });
+
+test('เปลี่ยนวิชาระหว่างรายสัปดาห์ ↔ ทั้งเทอม และจัดทั้งเทอมอัตโนมัติไม่ชน', () => {
+  const s = TT.normalizeState(sampleState(TT));
+  const wk = s.assignments.find((a) => !a.recurringId && !TT.isTerm(a) && s.placements.some((p) => p.assignmentId === a.id));
+  const r1 = TT.setPlan(s, wk.id, 'term');
+  assert.ok(r1.removedPlacements > 0 && TT.isTerm(wk));
+  assert.ok(!s.placements.some((p) => p.assignmentId === wk.id));
+  s.sessions = [];
+  const res = TT.autoTerm(s);
+  assert.ok(res.added > 0);
+  assert.strictEqual(TT.findConflicts(s).list.length, 0, 'จัดทั้งเทอมอัตโนมัติไม่ทำให้ชน');
+  for (const a of s.assignments.filter(TT.isTerm)) assert.ok(TT.termStatus(s, a).placed <= TT.termStatus(s, a).total);
+  const r2 = TT.setPlan(s, wk.id, 'weekly');
+  assert.ok(r2.removedSessions > 0 && !TT.isTerm(wk));
+  assert.ok(!s.sessions.some((x) => x.assignmentId === wk.id));
+  assert.strictEqual(TT.setPlan(s, s.assignments.find((a) => a.recurringId).id, 'term').ok, false, 'Home Room เปลี่ยนไม่ได้');
+});

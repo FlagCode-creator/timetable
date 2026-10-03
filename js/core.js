@@ -1006,6 +1006,43 @@
     return { added, remaining: termStatus(state, a).remaining };
   }
 
+  /**
+   * เปลี่ยนวิธีจัดของวิชา: 'term' (ตารางทั้งเทอม) หรือ 'weekly' (รายสัปดาห์)
+   * ไป 'term' → เอาคาบรายสัปดาห์ที่วางไว้ออก · ไป 'weekly' → เอาวันที่วางในตารางทั้งเทอมออก
+   */
+  function setPlan(state, assignmentId, plan) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId) return { ok: false, reason: 'เปลี่ยนไม่ได้' };
+    const res = { ok: true, removedPlacements: 0, removedSessions: 0 };
+    if (plan === 'term') {
+      const before = state.placements.length;
+      state.placements = state.placements.filter((p) => p.assignmentId !== a.id);
+      res.removedPlacements = before - state.placements.length;
+      a.plan = 'term';
+    } else {
+      const before = (state.sessions || []).length;
+      state.sessions = (state.sessions || []).filter((x) => x.assignmentId !== a.id);
+      res.removedSessions = before - state.sessions.length;
+      a.plan = 'weekly';
+    }
+    return res;
+  }
+
+  /**
+   * จัดตารางทั้งเทอมอัตโนมัติหลายวิชา: วิชาชั่วโมงเหลือมากก่อน เติมทีละวันตั้งแต่สัปดาห์ที่ 1
+   * วางเฉพาะช่วงที่ครู/กลุ่มว่าง (ไม่ทับตารางรายสัปดาห์และวิชาทั้งเทอมอื่น) · คืน { added, remaining, subjects }
+   */
+  function autoTerm(state, assignmentIds) {
+    const ids = (assignmentIds || state.assignments.filter(isTerm).map((a) => a.id))
+      .filter((id) => isTerm(state.assignments.find((a) => a.id === id)));
+    const left = (id) => termStatus(state, state.assignments.find((a) => a.id === id)).remaining;
+    ids.sort((x, y) => left(y) - left(x));
+    let added = 0;
+    for (const id of ids) added += fillTerm(state, id, 1).added;
+    const remaining = ids.reduce((n, id) => n + left(id), 0);
+    return { added, remaining, subjects: ids.length, short: ids.filter((id) => left(id) > 0) };
+  }
+
   /** เลื่อนเวลา session ทั้งก้อน (delta คาบ) */
   function shiftSession(state, sessionId, delta) {
     const x = state.sessions.find((y) => y.id === sessionId);
@@ -1703,6 +1740,8 @@
     cellKey,
     checkPlacement,
     findTeacherByName,
+    setPlan,
+    autoTerm,
     groupSubjects,
     addSubjectToGroup,
     removeSubjectFromGroup,
