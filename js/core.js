@@ -101,7 +101,10 @@
     }
     for (const t of out.teachers) if (!Array.isArray(t.unavailable)) t.unavailable = [];
     for (const g of out.groups) if (!Array.isArray(g.unavailable)) g.unavailable = [];
-    for (const a of out.assignments) if (!Array.isArray(a.groupIds)) a.groupIds = [];
+    for (const a of out.assignments) {
+      if (!Array.isArray(a.groupIds)) a.groupIds = [];
+      if (a.allowDays != null && !Array.isArray(a.allowDays)) delete a.allowDays; // ไฟล์ที่แก้มือ/เสีย
+    }
     return out;
   }
 
@@ -466,7 +469,9 @@
   /** ช่วงคาบที่ให้สอนได้ { days:Set<dayIndex>|null, from, to } */
   function windowOf(state, a) {
     const P = periods(state.settings).length;
-    const days = a && a.allowDays && a.allowDays.length ? new Set(a.allowDays.map((n) => state.settings.days.indexOf(n)).filter((d) => d >= 0)) : null;
+    // วันที่ตั้งไว้แต่ไม่มีในตารางแล้ว (เช่น ซ่อนวันนั้นในตั้งค่า) ไม่นับ · ไม่เหลือวันไหนเลย = ไม่จำกัดวัน (ไม่ให้วิชาวางไม่ได้ตลอดไป)
+    let days = a && a.allowDays && a.allowDays.length ? new Set(a.allowDays.map((n) => state.settings.days.indexOf(n)).filter((d) => d >= 0)) : null;
+    if (days && !days.size) days = null;
     const from = Math.max(1, Math.min(P, Number(a && a.allowFrom) || 1));
     const to = Math.max(from, Math.min(P, Number(a && a.allowTo) || P));
     return { days, from, to };

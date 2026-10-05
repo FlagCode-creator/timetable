@@ -635,3 +635,10 @@ test('autoSchedule only: จัดเฉพาะวิชาที่ระบ�
   const res = TT.autoSchedule(s, { seed: 1, only: new Set(['a2']) });
   assert.deepStrictEqual(res.placements.map((p) => p.assignmentId), ['a2']);
 });
+
+test('วัน/เวลาที่กำหนด: ชื่อวันที่ไม่มีในตารางแล้ว ไม่ทำให้วิชาวางไม่ได้', () => {
+  const s = mini();
+  s.assignments.push({ id: 'a1', teacherId: 't1', subjectId: 's1', groupIds: ['g1'], blocks: '2', allowDays: ['วันที่ถูกลบ'] });
+  assert.strictEqual(TT.windowOf(s, s.assignments[0]).days, null);
+  assert.ok(TT.autoSchedule(s, { seed: 1 }).complete);
+});

@@ -224,6 +224,7 @@
 
   const SCROLL_BOXES = ['.elist', '.side-panel', '.pool-list', '.grid-card'];
   let lastScrollKey = '';
+  let lastViewId = '';
 
   function render() {
     $('#steps').innerHTML = TABS.map(([k, label], i) =>
@@ -259,10 +260,12 @@
       const k = keepBoxes[i][j];
       if (k) { n.scrollTop = k[0]; n.scrollLeft = k[1]; }
     }));
-    // รายการที่เลือกอยู่ต้องมองเห็นในรายชื่อซ้ายเสมอ (เลื่อนเฉพาะกล่องรายชื่อ ไม่เลื่อนทั้งหน้า)
+    // เปลี่ยนครู/กลุ่มที่เลือก (เช่น กดจากรายการชนกัน) ให้เห็นในรายชื่อซ้าย (เลื่อนเฉพาะกล่องรายชื่อ ไม่เลื่อนทั้งหน้า)
     const list = $('.elist', main);
     const act = list && $('.eitem.active', list);
-    if (act) {
+    const moved = !keepBoxes || ui.viewId !== lastViewId;
+    lastViewId = ui.viewId;
+    if (act && moved) {
       const top = act.offsetTop - list.offsetTop;
       if (top < list.scrollTop || top + act.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = Math.max(0, top - list.clientHeight / 3);
     }
