@@ -1617,6 +1617,74 @@
     return res;
   }
 
+  /**
+   * คาบที่ชนกับการวาง a ที่ day/start/len — weekly (ไม่ส่ง week) หรือทั้งเทอม (ส่ง week)
+   * คืน [{ key, assignment, locked, kind: 'P'|'S' }] (key: 'aid#bi' หรือ 'S:sessionId') · skip = key ของตัวเองที่กำลังย้าย
+   */
+  function clashesAt(state, a, o) {
+    const idx = indexState(state);
+    const mine = new Set(resourceKeys(a, idx));
+    const shares = (b) => b && b.id !== a.id && resourceKeys(b, idx).some((k) => mine.has(k)) && !isCombinedWith(a, b);
+    const overlap = (s1, l1, s2, l2) => s1 < s2 + l2 && s2 < s1 + l1;
+    const out = [];
+    for (const pl of state.placements) {
+      const b = idx.assignments.get(pl.assignmentId);
+      const key = placementKey(pl.assignmentId, pl.blockIndex);
+      if (key === o.skip || pl.day !== o.day || !shares(b)) continue;
+      const len = assignmentBlocks(b, idx.subjects)[pl.blockIndex] || 0;
+      if (overlap(o.start, o.len, pl.start, len)) out.push({ key, assignment: b, locked: !!pl.locked || !!b.recurringId, kind: 'P' });
+    }
+    for (const x of state.sessions || []) {
+      const b = idx.assignments.get(x.assignmentId);
+      const key = 'S:' + x.id;
+      if (key === o.skip || x.day !== o.day || (o.week && x.week !== o.week) || !shares(b)) continue;
+      if (overlap(o.start, o.len, x.start, x.len)) out.push({ key, assignment: b, locked: false, kind: 'S' });
+    }
+    return out;
+  }
+
+  /** เอาคาบ/วันที่ระบุออกจากตาราง (ไม่แตะที่ล็อกและกิจกรรมประจำ) · คืน { removed, locked } */
+  function unplaceKeys(state, keys) {
+    const idx = indexState(state);
+    const set = new Set(keys);
+    let removed = 0, locked = 0;
+    state.placements = state.placements.filter((pl) => {
+      if (!set.has(placementKey(pl.assignmentId, pl.blockIndex))) return true;
+      const b = idx.assignments.get(pl.assignmentId);
+      if (pl.locked || (b && b.recurringId)) { locked++; return true; }
+      removed++;
+      return false;
+    });
+    state.sessions = (state.sessions || []).filter((x) => {
+      if (!set.has('S:' + x.id)) return true;
+      removed++;
+      return false;
+    });
+    return { removed, locked };
+  }
+
+  /** สองรายการวิชาเดียวกันเรียนรวมได้ไหม (วิชาเดียวกัน รูปแบบเดียวกัน ไม่ใช่กิจกรรมประจำ) */
+  function canCombine(a, b) {
+    return !!a && !!b && a.id !== b.id && !a.recurringId && !b.recurringId && !!a.subjectId && a.subjectId === b.subjectId && isTerm(a) === isTerm(b);
+  }
+
+  /** รวม merge เข้ากับ keep เป็นเรียนรวม (ใช้ครู/เวลาของ keep) · รายการ merge ถูกลบเมื่อย้ายครบทุกกลุ่ม */
+  function combineClasses(state, keepId, mergeId) {
+    const keep = state.assignments.find((x) => x.id === keepId);
+    const merge = state.assignments.find((x) => x.id === mergeId);
+    if (!canCombine(keep, merge)) return { error: 'เรียนรวมได้เฉพาะวิชาเดียวกัน' };
+    const groups = merge.groupIds.filter((g) => !keep.groupIds.includes(g));
+    for (const g of groups) joinClass(state, keep.id, g);
+    // กลุ่มของ merge ที่อยู่ใน keep อยู่แล้ว (ซ้ำ) → ลบรายการ merge ที่เหลือ
+    const rest = state.assignments.find((x) => x.id === mergeId);
+    if (rest) {
+      state.assignments = state.assignments.filter((x) => x !== rest);
+      state.placements = state.placements.filter((p) => p.assignmentId !== rest.id);
+      state.sessions = (state.sessions || []).filter((x) => x.assignmentId !== rest.id);
+    }
+    return { ok: true, groups: keep.groupIds.slice() };
+  }
+
   /** แยกกลุ่ม groupId ออกจากรายการเรียนรวม เป็นรายการของตัวเอง (ครู/รูปแบบเดิม ยังไม่ได้จัดตาราง) */
   function splitClass(state, assignmentId, groupId) {
     const a = state.assignments.find((x) => x.id === assignmentId);
@@ -1916,6 +1984,10 @@
     joinClass,
     splitClass,
     joinSameSubjects,
+    clashesAt,
+    unplaceKeys,
+    canCombine,
+    combineClasses,
     recurringSlotOk,
     syncRecurringPlacements,
     groupGrade,

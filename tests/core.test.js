@@ -681,3 +681,35 @@ test('เรียนรวม/แยกเรียน: สายตรงก�
   assert.strictEqual(TT.groupSubjects(s, 'g1').find((x) => x.subjectId === 's2').groupIds.length, 1, 'วิชาที่มีกลุ่มเดียวไม่ถูกรวม');
   assert.deepStrictEqual(require('./invariants.js')(s), []);
 });
+
+test('ชนกัน: หาคาบที่ชน · แทนที่ (เอาออก) · เรียนรวมเมื่อวิชาเดียวกัน', () => {
+  const s = mini();
+  const a = TT.addSubjectToGroup(s, 'g1', 's1').assignment; a.teacherId = 't1'; a.blocks = '2';
+  const b = TT.addSubjectToGroup(s, 'g2', 's1').assignment; b.teacherId = 't1'; b.blocks = '2';
+  const c = TT.addSubjectToGroup(s, 'g2', 's2').assignment; c.teacherId = 't2'; c.blocks = '2';
+  s.placements.push({ assignmentId: a.id, blockIndex: 0, day: 0, start: 1, locked: false });
+  // วาง b (ครู t1 เดียวกัน) ที่จันทร์คาบ 2 → ชนกับ a
+  const cl = TT.clashesAt(s, b, { day: 0, start: 2, len: 2 });
+  assert.deepStrictEqual(cl.map((x) => x.key), [a.id + '#0']);
+  assert.ok(TT.canCombine(b, a));
+  assert.ok(!TT.canCombine(c, a), 'คนละวิชารวมไม่ได้');
+  // เรียนรวม: b เข้าไปอยู่ใน a (เวลา/ครูของ a)
+  assert.ok(TT.combineClasses(s, a.id, b.id).ok);
+  assert.deepStrictEqual(a.groupIds, ['g1', 'g2']);
+  assert.ok(!s.assignments.some((x) => x.id === b.id));
+  // แทนที่: c วางทับ g2 ที่ a อยู่ → เอา a ออก (ไม่ล็อก)
+  const cl2 = TT.clashesAt(s, c, { day: 0, start: 1, len: 2 });
+  assert.strictEqual(cl2.length, 1);
+  assert.deepStrictEqual(TT.unplaceKeys(s, cl2.map((x) => x.key)), { removed: 1, locked: 0 });
+  assert.strictEqual(s.placements.length, 0);
+  // ที่ล็อกไว้ไม่ถูกเอาออก
+  s.placements.push({ assignmentId: a.id, blockIndex: 0, day: 0, start: 1, locked: true });
+  assert.deepStrictEqual(TT.unplaceKeys(s, [a.id + '#0']), { removed: 0, locked: 1 });
+  // ทั้งเทอม: ชนเฉพาะสัปดาห์เดียวกัน
+  TT.setPlan(s, c.id, 'term');
+  s.sessions.push({ id: 'x1', assignmentId: c.id, week: 2, day: 1, start: 1, len: 2 });
+  const d = TT.addSubjectToGroup(s, 'g2', 's1');
+  assert.strictEqual(TT.clashesAt(s, c, { week: 3, day: 1, start: 1, len: 2 }).length, 0);
+  assert.strictEqual(TT.clashesAt(s, Object.assign({}, c, { id: 'other' }), { week: 2, day: 1, start: 2, len: 1 }).length, 1);
+  assert.ok(d);
+});

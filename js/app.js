@@ -106,7 +106,7 @@
    * กล่องถาม/แจ้งเตือนแบบป๊อปอัป (แทน confirm/alert ของเบราว์เซอร์)
    * ask({ tone: 'warn'|'danger'|'info', title, msg, items: [], q, ok, cancel }) → Promise<true|false>
    * cancel: false = มีแค่ปุ่มตกลง (ใช้แจ้งเตือน)
-   * alt: ปุ่มทางเลือกที่สาม (คืนค่า 'alt')
+   * alt: ปุ่มทางเลือกที่สาม (คืนค่า 'alt') · extra: [{ label, value, danger }] ปุ่มเพิ่ม (คืนค่า value)
    */
   function ask(o) {
     const dlg = $('#dlg-ask');
@@ -130,15 +130,20 @@
     okB.className = 'btn ask-ok ' + (tone === 'danger' ? 'solid-bad' : 'primary');
     noB.textContent = o.cancel || 'ยกเลิก';
     noB.hidden = o.cancel === false;
-    let altB = $('.ask-alt', dlg);
-    if (!altB) { altB = document.createElement('button'); altB.className = 'btn ask-alt'; okB.before(altB); }
-    altB.textContent = o.alt || '';
-    altB.hidden = !o.alt;
-    altB.className = 'btn ask-alt' + (tone === 'danger' ? ' danger' : '');
+    $$('.ask-x', dlg).forEach((b) => b.remove());
+    const extra = (o.alt ? [{ label: o.alt, value: 'alt', danger: tone === 'danger' }] : []).concat(o.extra || []);
+    const xs = extra.map((x) => {
+      const b = document.createElement('button');
+      b.className = 'btn ask-x' + (x.danger ? ' danger' : '');
+      b.textContent = x.label;
+      okB.before(b);
+      return [b, x.value];
+    });
     return new Promise((resolve) => {
-      altB.onclick = () => done('alt');
+      xs.forEach(([b, v]) => (b.onclick = () => done(v)));
       const done = (v) => {
-        okB.onclick = noB.onclick = altB.onclick = dlg.onclick = dlg.oncancel = null;
+        okB.onclick = noB.onclick = dlg.onclick = dlg.oncancel = null;
+        xs.forEach(([b]) => (b.onclick = null));
         if (dlg.open) dlg.close();
         resolve(v);
       };
@@ -172,15 +177,57 @@
       '<div class="bad-i">' + esc(r.text) + (r.sub ? '<small>' + esc(r.sub) + '</small>' : '') + '</div>').join('') + '</div>';
   }
 
-  function conflictAsk(reasons, verb) {
-    return ask({
+  /**
+   * ช่วงเวลานี้ชนกัน: ให้เลือก แทนที่ (เอาคาบที่ชนออก) / เรียนรวม (วิชาเดียวกัน) / วางทั้งที่ชน / ยกเลิก
+   * ctx = { a, clashes } (จาก TT.clashesAt) · คืนค่า false | true (วางทับ) | 'replace' | { join: assignmentId }
+   */
+  async function conflictAsk(reasons, verb, ctx) {
+    const clashes = (ctx && ctx.clashes) || [];
+    const idx = TT.indexState(state);
+    const movable = clashes.filter((c) => !c.locked);
+    const twin = ctx && clashes.find((c) => TT.canCombine(ctx.a, c.assignment));
+    const extra = [];
+    if (twin) extra.push({ label: 'เรียนรวมกับ ' + groupsLabel(twin.assignment, idx), value: 'join' });
+    if (movable.length) extra.push({ label: 'แทนที่ (เอา ' + [...new Set(movable.map((c) => subjCode(c.assignment, idx)))].join(', ') + ' ออก)', value: 'replace' });
+    const res = await ask({
       tone: 'warn',
       title: 'ช่วงเวลานี้ชนกัน',
       items: groupReasons(reasons),
-      q: 'ต้องการ' + verb + 'ไว้ตรงนี้ทั้งที่ชนกันไหม?',
-      ok: verb + 'ต่อ',
-      cancel: 'ไม่' + verb,
+      q: (twin ? 'เป็นวิชาเดียวกัน → "เรียนรวม" = สอนพร้อมกันครั้งเดียว · ' : '') + (movable.length ? '"แทนที่" = ' + verb + 'ตรงนี้ แล้วคาบที่ชนกลับไปรอจัดใหม่ · ' : '') +
+        (clashes.some((c) => c.locked) ? 'คาบที่ล็อก/กิจกรรมประจำแทนที่ไม่ได้ · ' : '') + 'หรือ' + verb + 'ทั้งที่ชน',
+      extra,
+      ok: verb + 'ทั้งที่ชน',
+      cancel: 'ยกเลิก',
     });
+    if (res === 'join') return { join: twin.assignment.id };
+    return res;
+  }
+
+  /** ทำตามที่เลือกใน conflictAsk: 'replace' เอาคาบที่ชนออก · { join } รวมเป็นเรียนรวม (คืน true = จบแล้ว ไม่ต้องวางต่อ) */
+  function applyClashChoice(res, a, clashes) {
+    if (res === 'replace') {
+      const r = TT.unplaceKeys(state, clashes.filter((c) => !c.locked).map((c) => c.key));
+      toast('แทนที่แล้ว · ' + r.removed + ' คาบที่ชนกลับไปรอจัดใหม่' + (r.locked ? ' (ล็อกไว้ ' + r.locked + ')' : ''));
+      return false;
+    }
+    if (res && res.join) {
+      const keep = state.assignments.find((x) => x.id === res.join);
+      const idx = TT.indexState(state);
+      const before = groupsLabel(a, idx);
+      TT.combineClasses(state, res.join, a.id);
+      ui.selected = null;
+      ui.termPick = null;
+      ui.termSel = null;
+      commit();
+      toast(subjCode(keep, TT.indexState(state)) + ' เรียนรวมแล้ว: ' + groupsLabel(keep, TT.indexState(state)) + ' (ครู/เวลาเดียวกัน · รวม ' + before + ' เข้ามา)');
+      return true;
+    }
+    return false;
+  }
+
+  function subjCode(a, idx) {
+    const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
+    return sj ? sj.code : (a && a.title) || 'กิจกรรม';
   }
 
   function download(name, text, type) {
@@ -400,6 +447,7 @@
   function renderCheck(el) {
     const issues = TT.checkData(state);
     const idx = TT.indexState(state);
+    const conf = TT.findConflicts(state);
     const errors = issues.filter((i) => i.level === 'error');
     const warns = issues.filter((i) => i.level === 'warn');
     const usage = (gid) => state.assignments.filter((a) => a.groupIds.includes(gid)).length;
@@ -429,8 +477,14 @@
       '<div class="stat-tile ' + (errors.length ? 'bad' : 'ok') + '"><span>ต้องแก้</span><b>' + errors.length + '</b><small>เช่น กลุ่มรหัสซ้ำ เรียนซ้อนเวลา</small></div>' +
       '<div class="stat-tile ' + (warns.length ? 'warn' : 'ok') + '"><span>ควรตรวจ</span><b>' + warns.length + '</b><small>อาจตั้งใจ หรืออาจผิด</small></div>' +
       '<div class="stat-tile"><span>กลุ่มเรียน</span><b>' + state.groups.length + '</b><small>กลุ่มในระบบ</small></div></div>' +
+      (conf.list.length ? '<section class="issue error clash-card"><div class="issue-head"><span class="issue-tag">คาบชนกัน</span><h3>ชนกัน ' + conf.list.length + ' จุด — แก้ได้ที่นี่</h3></div>' +
+        '<p>เรียนรวม = วิชาเดียวกันสอนพร้อมกันครั้งเดียว · ย้ายออก = เอาคาบนั้นออก (กลับไปรอจัด) ให้อีกวิชาอยู่แทน · ไปดู = เปิดตารางตรงจุดนั้น</p>' +
+        '<div class="conf-list">' + conf.list.map((c, i) => '<div class="conf-row"><button class="conf-item" data-ci="' + i + '">' +
+          '<span class="ci-when">' + esc(state.settings.days[c.day]) + ' คาบ ' + c.periods.join(', ') + (c.week ? ' <span class="badge warn">ทั้งเทอม · สัปดาห์ที่ ' + c.week + '</span>' : '') + '</span>' +
+          '<span class="ci-msg">' + esc(c.message.replace(/ — ตารางทั้งเทอม สัปดาห์ที่ \d+$/, '')) + '</span><span class="ci-go">ไปดู →</span></button>' +
+          clashActions(c, i, idx) + '</div>').join('') + '</div></section>' : '') +
       (issues.length ? '<div class="issues">' + issues.map(card).join('') + '</div>'
-        : '<div class="card empty-state ok-state">' + ICON.check + '<b>ไม่พบปัญหา</b><span>ไม่มีกลุ่มเรียนซ้ำ ไม่มีวิชาซ้ำ และไม่มีกลุ่มเรียนซ้อนเวลา</span></div>');
+        : conf.list.length ? '' : '<div class="card empty-state ok-state">' + ICON.check + '<b>ไม่พบปัญหา</b><span>ไม่มีกลุ่มเรียนซ้ำ ไม่มีวิชาซ้ำ และไม่มีกลุ่มเรียนซ้อนเวลา</span></div>');
 
     $$('[data-keep]', el).forEach((b) => (b.onclick = async () => {
       const i = issues[Number(b.dataset.issue)];
@@ -442,6 +496,8 @@
       commit();
       toast('รวมกลุ่มเรียนแล้ว');
     }));
+    $$('[data-ci]', el).forEach((b) => (b.onclick = () => goToConflict(conf.list[Number(b.dataset.ci)])));
+    bindClashActions(el, conf.list);
     $$('[data-see-group]', el).forEach((b) => (b.onclick = () => { ui.view = 'group'; ui.viewId = b.dataset.seeGroup; ui.listFilter = ''; go('schedule'); }));
     $$('[data-see-teacher]', el).forEach((b) => (b.onclick = () => { ui.assignTeacher = b.dataset.seeTeacher; ui.listFilter = ''; go('assign'); }));
     $$('[data-see-data]', el).forEach((b) => (b.onclick = () => { ui.dataTab = b.dataset.seeData; ui.dataFilter = ''; go('data'); }));
@@ -2064,28 +2120,8 @@
     const sc = $('#show-conf', el);
     if (sc) sc.onclick = () => { ui.showConflicts = !ui.showConflicts; render(); };
     // คลิกจุดที่ชน: เปิดครู/กลุ่มนั้น สลับโหมดตาราง เลือกคาบ และเลื่อนไปสัปดาห์ที่ชน
-    $$('[data-ci]', el).forEach((b) => (b.onclick = () => {
-      const c = conflicts.list[Number(b.dataset.ci)];
-      if (!c) return;
-      // อยู่ที่ครู/กลุ่มที่เกี่ยวข้องอยู่แล้ว → อยู่ที่เดิม ไม่งั้นเปิดคนแรกที่โดน
-      const cur = { teacher: 't', group: 'g', room: 'r' }[ui.view] + ':' + ui.viewId;
-      const rk = (c.resources || []).includes(cur) ? cur : c.resource;
-      if (rk) {
-        const t = rk[0];
-        ui.view = t === 't' ? 'teacher' : t === 'g' ? 'group' : 'room';
-        ui.viewId = rk.slice(2);
-        ui.listFilter = '';
-      }
-      const sk = c.keys.find((k) => k.startsWith('S:'));
-      if (sk) { ui.cal = 'term'; ui.termSel = sk.slice(2); ui.termPick = null; ui.selected = null; }
-      else { ui.cal = 'week'; ui.selected = c.keys[0] || null; ui.termSel = null; }
-      render();
-      setTimeout(() => {
-        const target = c.week ? $('#tw-' + c.week) : $('#gridwrap');
-        const sticky = $('.sticky-tools');
-        if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - (sticky ? sticky.offsetHeight : 0) - 80, behavior: 'smooth' });
-      }, 60);
-    }));
+    $$('[data-ci]', el).forEach((b) => (b.onclick = () => goToConflict(conflicts.list[Number(b.dataset.ci)])));
+    bindClashActions(el, conflicts.list);
     const ca = $('#clear-all', el);
     if (ca) ca.onclick = async () => {
       if (!(await ask({ tone: 'danger', title: 'ล้างตารางรายสัปดาห์ของทุกคน?', msg: 'นำคาบที่ไม่ได้ล็อกออก (กิจกรรมประจำและคาบที่ล็อกไว้จะอยู่เหมือนเดิม)', ok: 'ล้าง' }))) return;
@@ -2097,6 +2133,83 @@
     if (!ent) return;
     if (term) bindTerm(el, ent);
     else bindGrid(el, ent);
+  }
+
+  /** เปิดจุดที่ชน: ครู/กลุ่มนั้น สลับโหมดตาราง เลือกคาบ และเลื่อนไปสัปดาห์ที่ชน */
+  function goToConflict(c) {
+    if (!c) return;
+    // อยู่ที่ครู/กลุ่มที่เกี่ยวข้องอยู่แล้ว → อยู่ที่เดิม ไม่งั้นเปิดคนแรกที่โดน
+    const cur = { teacher: 't', group: 'g', room: 'r' }[ui.view] + ':' + ui.viewId;
+    const rk = (c.resources || []).includes(cur) ? cur : c.resource;
+    if (rk) {
+      const t = rk[0];
+      ui.view = t === 't' ? 'teacher' : t === 'g' ? 'group' : 'room';
+      ui.viewId = rk.slice(2);
+      ui.listFilter = '';
+    }
+    const sk = c.keys.find((k) => k.startsWith('S:'));
+    if (sk) { ui.cal = 'term'; ui.termSel = sk.slice(2); ui.termPick = null; ui.selected = null; }
+    else { ui.cal = 'week'; ui.selected = c.keys[0] || null; ui.termSel = null; }
+    if (ui.tab !== 'schedule') go('schedule'); else render();
+    setTimeout(() => {
+      const target = c.week ? $('#tw-' + c.week) : $('#gridwrap');
+      const sticky = $('.sticky-tools');
+      if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - (sticky ? sticky.offsetHeight : 0) - 80, behavior: 'smooth' });
+    }, 60);
+  }
+
+  /** คาบ/วันที่ในจุดที่ชน → [{ key, a, locked }] */
+  function clashItems(c, idx) {
+    const pls = new Map(state.placements.map((p) => [p.assignmentId + '#' + p.blockIndex, p]));
+    const sess = new Map((state.sessions || []).map((x) => [x.id, x]));
+    return [...new Set(c.keys)].map((k) => {
+      if (k.startsWith('S:')) { const x = sess.get(k.slice(2)); const a = x && idx.assignments.get(x.assignmentId); return a ? { key: k, a, locked: false } : null; }
+      const pl = pls.get(k);
+      const a = pl && idx.assignments.get(pl.assignmentId);
+      return a ? { key: k, a, locked: !!pl.locked || !!a.recurringId } : null;
+    }).filter(Boolean);
+  }
+
+  /** คู่ที่เรียนรวมได้ (วิชาเดียวกัน) ในจุดที่ชน */
+  function clashPair(items) {
+    for (let x = 0; x < items.length; x++) for (let y = x + 1; y < items.length; y++) if (TT.canCombine(items[x].a, items[y].a)) return [items[x], items[y]];
+    return null;
+  }
+
+  /** ปุ่มแก้จุดที่ชน: เรียนรวม (วิชาเดียวกัน) / ย้ายออก (กลับไปรอจัด) */
+  function clashActions(c, i, idx) {
+    const items = clashItems(c, idx);
+    const pair = clashPair(items);
+    let html = pair ? '<button class="btn small" data-cjoin="' + i + '" title="สอนพร้อมกันครั้งเดียว ครู/เวลาเดียวกัน">เรียนรวม ' + esc(subjCode(pair[0].a, idx)) + '</button>' : '';
+    html += items.filter((x) => !x.locked).slice(0, 3).map((x) => '<button class="btn small ghost" data-cout="' + i + '|' + esc(x.key) + '" title="เอาคาบนี้ออก กลับไปรอจัดใหม่ (ให้อีกวิชาอยู่แทน)">ย้ายออก ' +
+      esc(subjCode(x.a, idx)) + ' · ' + esc(groupsLabel(x.a, idx)) + '</button>').join('');
+    return html ? '<div class="ci-acts">' + html + '</div>' : '';
+  }
+
+  function bindClashActions(el, list) {
+    $$('[data-cjoin]', el).forEach((b) => (b.onclick = async () => {
+      const c = list[Number(b.dataset.cjoin)];
+      const idx = TT.indexState(state);
+      const pair = c && clashPair(clashItems(c, idx));
+      if (!pair) return;
+      const [p, q] = pair;
+      const tn = (a) => (idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู';
+      const diffT = p.a.teacherId !== q.a.teacherId;
+      const res = await ask({ title: 'ให้ ' + groupsLabel(p.a, idx) + ' กับ ' + groupsLabel(q.a, idx) + ' เรียน ' + subjCode(p.a, idx) + ' รวมกัน?',
+        msg: 'สองรายการจะกลายเป็นรายการเดียว สอนพร้อมกันครั้งเดียว ไม่ชนกันอีก' + (diffT ? ' · ครูต่างกัน เลือกครู/เวลาที่จะใช้' : ''),
+        extra: diffT ? [{ label: 'ใช้ ' + tn(q.a), value: 'q' }] : [], ok: diffT ? 'ใช้ ' + tn(p.a) : 'เรียนรวม' });
+      if (!res) return;
+      const [keep, merge] = res === 'q' ? [q, p] : [p, q];
+      TT.combineClasses(state, keep.a.id, merge.a.id);
+      commit();
+      toast(subjCode(keep.a, TT.indexState(state)) + ' เรียนรวมแล้ว: ' + groupsLabel(state.assignments.find((x) => x.id === keep.a.id), TT.indexState(state)));
+    }));
+    $$('[data-cout]', el).forEach((b) => (b.onclick = () => {
+      const [, key] = b.dataset.cout.split('|');
+      const r = TT.unplaceKeys(state, [key]);
+      commit();
+      toast(r.removed ? 'ย้ายออกแล้ว · คาบนั้นกลับไปรอจัดใหม่ (ดูที่ "ยังไม่ได้จัด")' : 'คาบนี้ล็อกไว้ ย้ายออกไม่ได้', !r.removed);
+    }));
   }
 
   function fillEntityList(blocks) {
@@ -2478,6 +2591,7 @@
   }
 
   function overviewCard(conflicts, blocks) {
+    const cidx = TT.indexState(state);
     const total = blocks.length;
     const placed = blocks.filter((b) => b.placement).length;
     return '<section class="card"><h2>ภาพรวมทั้งวิทยาลัย</h2>' +
@@ -2485,12 +2599,12 @@
       '<div class="bar"><i style="width:' + (total ? Math.round((placed / total) * 100) : 0) + '%"></i></div>' +
       (conflicts.list.length
         ? '<button class="linkish bad" id="show-conf">' + ICON.info + 'ชนกัน ' + conflicts.list.length + ' จุด ' + (ui.showConflicts ? '▴' : '▾') + '</button>' +
-          (ui.showConflicts ? '<div class="conf-list">' + conflicts.list.map((c, i) =>
+          (ui.showConflicts ? '<div class="conf-list">' + conflicts.list.map((c, i) => '<div class="conf-row">' +
             '<button class="conf-item" data-ci="' + i + '" title="คลิกเพื่อไปดูจุดที่ชน">' +
             '<span class="ci-when">' + esc(state.settings.days[c.day]) + ' คาบ ' + c.periods.join(', ') +
             (c.week ? ' <span class="badge warn">ตารางทั้งเทอม · สัปดาห์ที่ ' + c.week + '</span>' : ' <span class="badge">ตารางรายสัปดาห์</span>') + '</span>' +
             '<span class="ci-msg">' + esc(c.message.replace(/ — ตารางทั้งเทอม สัปดาห์ที่ \d+$/, '')) + '</span>' +
-            '<span class="ci-go">ไปดูจุดนี้ →</span></button>').join('') + '</div>' : '')
+            '<span class="ci-go">ไปดูจุดนี้ →</span></button>' + clashActions(c, i, cidx) + '</div>').join('') + '</div>' : '')
         : '<p class="ok-line">' + ICON.check + 'ไม่มีคาบชนกัน</p>') +
       (ui.lastUnplaced.length ? '<div class="bad-box"><div>' + ICON.info + 'จัดอัตโนมัติแล้ว แต่วางไม่ได้ ' + ui.lastUnplaced.length + ' ก้อน (เวลาเต็ม) ดูรายชื่อที่มีป้าย "เหลือ"</div>' +
         '<button class="linkish" id="dismiss-un">ปิด</button></div>' : '') +
@@ -2551,7 +2665,12 @@
     if (snapped == null) { toast(TT.checkPlacement(state, a, blockIndex, day, start).reasons[0], true); return; }
     start = snapped;
     const r = TT.checkPlacement(state, a, blockIndex, day, start);
-    if (!r.ok && !(await conflictAsk(r.reasons, 'วาง'))) return;
+    if (!r.ok) {
+      const len = TT.assignmentBlocks(a, TT.indexState(state).subjects)[blockIndex];
+      const clashes = TT.clashesAt(state, a, { day, start, len, skip: key });
+      const res = await conflictAsk(r.reasons, 'วาง', { a, clashes });
+      if (!res || applyClashChoice(res, a, clashes)) return;
+    }
     const old = TT.findPlacement(state, assignmentId, blockIndex);
     state.placements = state.placements.filter((p) => p !== old);
     state.placements.push({ assignmentId, blockIndex, day, start, locked: old ? old.locked : false });
@@ -2924,7 +3043,9 @@
       start = TT.snapSession(state, a, week, day, p, len, null, cache);
       if (start == null) { toast('ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
       const chk = TT.checkSession(state, a, week, day, start, len, null, cache);
-      if (!(await conflictAsk(chk.reasons, 'วาง'))) return;
+      const clashes = TT.clashesAt(state, a, { week, day, start, len });
+      const res = await conflictAsk(chk.reasons, 'วาง', { a, clashes });
+      if (!res || applyClashChoice(res, a, clashes)) return;
     }
     TT.addSession(state, assignmentId, week, day, { start, len });
     const after = TT.termStatus(state, a);
@@ -2941,7 +3062,11 @@
     const start = TT.snapSession(state, a, week, day, p, x.len, x.id);
     if (start == null) { toast('ช่วงนี้วาง ' + x.len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
     const chk = TT.checkSession(state, a, week, day, start, x.len, x.id);
-    if (!chk.ok && !(await conflictAsk(chk.reasons, 'ย้าย'))) return;
+    if (!chk.ok) {
+      const clashes = TT.clashesAt(state, a, { week, day, start, len: x.len, skip: 'S:' + x.id });
+      const res = await conflictAsk(chk.reasons, 'ย้าย', { a, clashes });
+      if (!res || applyClashChoice(res, a, clashes)) return;
+    }
     Object.assign(x, { week, day, start });
     commit();
   }

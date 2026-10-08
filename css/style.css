@@ -817,3 +817,11 @@ select.gs-join { margin-top: 4px; height: 28px; border: 1px dashed var(--line); 
 small.mates { color: var(--accent); }
 small.mates .ic { width: 12px; height: 12px; vertical-align: -2px; margin-right: 2px; }
 .gs-sibs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--soft); font-size: 13px; color: var(--ink-2); }
+
+/* แก้จุดที่ชน: เรียนรวม / ย้ายออก */
+.conf-row { display: flex; flex-direction: column; gap: 0; background: rgba(255,255,255,.75); border-radius: 8px; }
+.conf-row .conf-item { background: transparent; width: 100%; }
+.ci-acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
+.ci-acts .btn { min-height: 28px; font-size: 12px; }
+.clash-card .conf-list { background: transparent; padding: 0; }
+.clash-card .conf-row { background: var(--bad-soft); }
