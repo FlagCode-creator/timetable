@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261012a">
+  <link rel="stylesheet" href="css/style.css?v=20261012b">
 </head>
 <body>
   <header class="app-header no-print">
@@ -23,6 +23,8 @@
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>
         <span id="hdr-check-n"></span>
       </button>
+      <button class="btn icon ghost" id="hdr-undo" title="ย้อนกลับ (Ctrl+Z)" aria-label="ย้อนกลับ" disabled><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+      <button class="btn icon ghost" id="hdr-redo" title="ทำซ้ำ (Ctrl+Y)" aria-label="ทำซ้ำ" disabled><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
       <details class="menu" id="hdr-menu">
         <summary class="btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>ตั้งค่า</summary>
         <div class="menu-pop">
@@ -30,6 +32,7 @@
           <button data-menu="check"><b>ตรวจสอบข้อมูล</b><small>กลุ่มเรียนซ้ำ · วิชาซ้ำ · เรียนชนกัน</small></button>
           <button data-menu="school"><b>ข้อมูลสถานศึกษา</b><small>ชื่อวิทยาลัย · ภาคเรียน · ผู้ลงนาม</small></button>
           <button data-menu="export"><b>บันทึกไฟล์สำรอง</b><small>ดาวน์โหลดข้อมูลทั้งหมดเก็บไว้</small></button>
+          <button data-menu="history"><b>ประวัติ / กู้คืนข้อมูล</b><small>จุดกู้คืนอัตโนมัติ · ย้อนกลับเวอร์ชันก่อนหน้า</small></button>
           <button data-menu="import"><b>เปิดไฟล์สำรอง</b><small>นำข้อมูลจากไฟล์ .json ที่บันทึกไว้กลับมาใช้</small></button>
           <input type="file" id="menu-import" accept=".json,application/json" hidden>
         </div>
@@ -71,6 +74,8 @@
 
   <dialog id="dlg-edit" class="no-print"></dialog>
 
+  <dialog id="dlg-hist" class="no-print hist" aria-label="ประวัติ / กู้คืนข้อมูล"></dialog>
+
   <dialog id="dlg-when" class="no-print when" aria-label="วันและเวลาที่สอน"></dialog>
 
   <dialog id="dlg-gsub" class="no-print gsub" aria-label="รายวิชาของกลุ่มเรียน"></dialog>
@@ -93,12 +98,12 @@
 
   <div id="toast" class="no-print"></div>
 
-  <script src="js/core.js?v=20261012a"></script>
-  <script src="js/sample.js?v=20261012a"></script>
-  <script src="js/plans.js?v=20261012a"></script>
-  <script src="js/catalog.js?v=20261012a"></script>
-  <script src="js/grid.js?v=20261012a"></script>
-  <script src="js/print.js?v=20261012a"></script>
-  <script src="js/app.js?v=20261012a"></script>
+  <script src="js/core.js?v=20261012b"></script>
+  <script src="js/sample.js?v=20261012b"></script>
+  <script src="js/plans.js?v=20261012b"></script>
+  <script src="js/catalog.js?v=20261012b"></script>
+  <script src="js/grid.js?v=20261012b"></script>
+  <script src="js/print.js?v=20261012b"></script>
+  <script src="js/app.js?v=20261012b"></script>
 </body>
 </html>

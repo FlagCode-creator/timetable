@@ -908,3 +908,12 @@ small.mates .ic { width: 12px; height: 12px; vertical-align: -2px; margin-right:
 .term-set .tt-grid th.day { min-width: 146px; }
 .term-set table.tt-grid th.corner { width: 132px; }
 .page.term-set-page table.tt-grid th.corner { width: 92px; }
+
+/* ประวัติ / กู้คืนข้อมูล */
+dialog.hist { width: min(720px, calc(100vw - 32px)); }
+.hist-now { padding: 10px 12px; border-radius: 10px; background: var(--soft); font-size: 13px; margin: 8px 0; }
+.hist-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.hist-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.hist-row .grow { display: flex; flex-direction: column; flex: 1; font-size: 13px; }
+.hist-row small { color: var(--ink-2); font-size: 12px; }
+#hdr-undo:disabled, #hdr-redo:disabled { opacity: .35; }

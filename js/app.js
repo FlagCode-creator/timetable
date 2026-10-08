@@ -38,16 +38,132 @@
     return TT.emptyState();
   }
 
+  /* ---------- กันข้อมูลหาย: ย้อนกลับ/ทำซ้ำ + จุดกู้คืนอัตโนมัติ ---------- */
+  const SNAP_KEY = 'timetable.snaps';
+  const EXPORT_KEY = 'timetable.lastExport';
+  const UNDO_MAX = 40;
+  const SNAP_MAX = 6;
+  const SNAP_EVERY = 20 * 60 * 1000; // ระหว่างแก้ไข เก็บจุดกู้คืนทุก 20 นาที
+  let lastSaved = null; // JSON ของข้อมูลที่บันทึกล่าสุด
+  const undoStack = [];
+  const redoStack = [];
+
+  function writeStore(json) {
+    try {
+      localStorage.setItem(STORE_KEY, json);
+      return true;
+    } catch (e) {
+      // พื้นที่เต็ม: ข้อมูลหลักสำคัญกว่า → ทิ้งจุดกู้คืนเก่าทีละจุดแล้วลองใหม่
+      const snaps = readSnaps();
+      while (snaps.length) {
+        snaps.shift();
+        try {
+          localStorage.setItem(SNAP_KEY, JSON.stringify(snaps));
+          localStorage.setItem(STORE_KEY, json);
+          return true;
+        } catch (e2) { /* ลองต่อ */ }
+      }
+      try { localStorage.removeItem(SNAP_KEY); localStorage.setItem(STORE_KEY, json); return true; } catch (e3) { /* เต็มจริง */ }
+      toast('บันทึกในเบราว์เซอร์ไม่สำเร็จ กรุณากด "บันทึกไฟล์สำรอง" เก็บไว้', true);
+      return false;
+    }
+  }
+
+  function readSnaps() {
+    try { return JSON.parse(localStorage.getItem(SNAP_KEY) || '[]').filter((x) => x && x.data); } catch (e) { return []; }
+  }
+
+  /** เก็บจุดกู้คืน (ข้อมูลทั้งชุด) ไว้ในเบราว์เซอร์ เก็บล่าสุด 6 จุด · พื้นที่ไม่พอจะทิ้งจุดเก่าสุด */
+  function checkpoint(label, json) {
+    const data = json || lastSaved || JSON.stringify(state);
+    const snaps = readSnaps();
+    if (snaps.length && snaps[snaps.length - 1].data === data) return;
+    snaps.push({ t: Date.now(), label, data });
+    while (snaps.length > SNAP_MAX) snaps.shift();
+    while (snaps.length) {
+      try { localStorage.setItem(SNAP_KEY, JSON.stringify(snaps)); return; } catch (e) { snaps.shift(); }
+    }
+  }
+
+  function updateUndoButtons() {
+    const u = $('#hdr-undo');
+    const r = $('#hdr-redo');
+    if (u) u.disabled = !undoStack.length;
+    if (r) r.disabled = !redoStack.length;
+  }
+
   function save() {
     // ทุกครั้งที่บันทึก: กิจกรรมประจำ (Home Room / PLC) ให้ตรงกับรายชื่อครูและกลุ่มเรียนเสมอ
     syncTeacherActivities();
     TT.syncAdvisors(state);
     TT.syncRecurringPlacements(state);
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    } catch (e) {
-      toast('บันทึกในเบราว์เซอร์ไม่สำเร็จ กรุณากด "บันทึกไฟล์สำรอง" เก็บไว้', true);
+    const json = JSON.stringify(state);
+    if (json === lastSaved) return;
+    if (lastSaved != null) {
+      undoStack.push(lastSaved);
+      if (undoStack.length > UNDO_MAX) undoStack.shift();
+      redoStack.length = 0;
+      const snaps = readSnaps();
+      if (!snaps.length || Date.now() - snaps[snaps.length - 1].t > SNAP_EVERY) checkpoint('ระหว่างแก้ไข', lastSaved);
     }
+    lastSaved = json;
+    writeStore(json);
+    updateUndoButtons();
+  }
+
+  /** ย้อนกลับ (dir = -1) / ทำซ้ำ (dir = 1) */
+  function stepHistory(dir) {
+    const from = dir < 0 ? undoStack : redoStack;
+    const to = dir < 0 ? redoStack : undoStack;
+    if (!from.length) { toast(dir < 0 ? 'ไม่มีอะไรให้ย้อนกลับ' : 'ไม่มีอะไรให้ทำซ้ำ'); return; }
+    to.push(lastSaved);
+    lastSaved = from.pop();
+    state = TT.normalizeState(JSON.parse(lastSaved));
+    ui.selected = null;
+    ui.termPick = null;
+    ui.termSel = null;
+    writeStore(lastSaved);
+    render();
+    updateUndoButtons();
+    toast((dir < 0 ? 'ย้อนกลับแล้ว' : 'ทำซ้ำแล้ว') + ' · เหลือย้อนได้อีก ' + undoStack.length + ' ขั้น');
+  }
+
+  /** หน้าต่างจุดกู้คืน: ดู/กู้คืน/ดาวน์โหลด */
+  function openHistory() {
+    const dlg = $('#dlg-hist');
+    const fmt = (t) => new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+    const sum = (d) => { try { const x = JSON.parse(d); return x.teachers.length + ' ครู · ' + x.groups.length + ' กลุ่ม · ' + x.assignments.filter((a) => !a.recurringId).length + ' วิชา · ' + ((x.placements || []).length + (x.sessions || []).length) + ' คาบที่จัด'; } catch (e) { return ''; } };
+    const draw = () => {
+      const snaps = readSnaps().slice().reverse();
+      const last = Number(localStorage.getItem(EXPORT_KEY)) || 0;
+      dlg.innerHTML = '<div class="gs-head"><div><h3>ประวัติ / กู้คืนข้อมูล</h3><p class="hint">ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้ · ' +
+        (last ? 'บันทึกไฟล์สำรองล่าสุด ' + esc(fmt(last)) : '<b class="warn">ยังไม่เคยบันทึกไฟล์สำรอง</b>') + '</p></div>' +
+        '<button class="btn icon ghost" id="h-close" aria-label="ปิด">' + ICON.x + '</button></div>' +
+        '<div class="hist-now"><b>ตอนนี้</b> ' + esc(sum(lastSaved || JSON.stringify(state))) + ' · ย้อนกลับได้ ' + undoStack.length + ' ขั้น (Ctrl+Z)</div>' +
+        '<p class="hint">จุดกู้คืนอัตโนมัติ (ล่าสุด ' + SNAP_MAX + ' จุด): ตอนเปิดเว็บ · ทุก 20 นาทีระหว่างแก้ไข · ก่อนเปิดไฟล์สำรอง/ล้างข้อมูล/เริ่มเทอมใหม่</p>' +
+        (snaps.length ? '<div class="hist-list">' + snaps.map((x, i) => '<div class="hist-row"><span class="grow"><b>' + esc(fmt(x.t)) + '</b> · ' + esc(x.label) + '<small>' + esc(sum(x.data)) + '</small></span>' +
+          '<button class="btn small" data-hdl="' + i + '">ดาวน์โหลด</button><button class="btn small primary" data-hrestore="' + i + '">กู้คืน</button></div>').join('') + '</div>'
+          : '<p class="empty-row">ยังไม่มีจุดกู้คืน</p>') +
+        '<div class="btns spread"><span class="hint">ไฟล์สำรอง (.json) ปลอดภัยที่สุด — ใช้ได้แม้ล้างเบราว์เซอร์หรือเปลี่ยนเครื่อง</span><button class="btn primary" id="h-export">บันทึกไฟล์สำรองตอนนี้</button></div>';
+      $('#h-close', dlg).onclick = () => dlg.close();
+      $('#h-export', dlg).onclick = () => { exportBackup(); draw(); };
+      $$('[data-hdl]', dlg).forEach((b) => (b.onclick = () => {
+        const x = snaps[Number(b.dataset.hdl)];
+        download('ตารางสอน-จุดกู้คืน-' + new Date(x.t).toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json', x.data);
+      }));
+      $$('[data-hrestore]', dlg).forEach((b) => (b.onclick = async () => {
+        const x = snaps[Number(b.dataset.hrestore)];
+        if (!(await ask({ title: 'กู้คืนข้อมูลเมื่อ ' + fmt(x.t) + '?', msg: sum(x.data), q: 'ข้อมูลตอนนี้จะถูกเก็บเป็นจุดกู้คืน และกด ย้อนกลับ (Ctrl+Z) เพื่อกลับมาได้', ok: 'กู้คืน' }))) return;
+        checkpoint('ก่อนกู้คืน');
+        state = TT.normalizeState(JSON.parse(x.data));
+        ui.viewId = '';
+        dlg.close();
+        commit();
+        toast('กู้คืนข้อมูลเมื่อ ' + fmt(x.t) + ' แล้ว');
+      }));
+    };
+    draw();
+    dlg.showModal();
   }
 
   function commit() {
@@ -242,6 +358,7 @@
 
   function exportBackup() {
     download('ตารางสอน-' + state.settings.semester + '-' + state.settings.year + '.json', JSON.stringify(state, null, 1));
+    try { localStorage.setItem(EXPORT_KEY, String(Date.now())); } catch (e) { /* ไม่เป็นไร */ }
   }
 
   const $ = (sel, el) => (el || document).querySelector(sel);
@@ -338,6 +455,7 @@
   function usePreparedPlan(i) {
     const plan = (window.TTPlans || [])[i];
     if (!plan) return;
+    checkpoint('ก่อนใส่' + plan.name);
     const res = TT.importStudyPlan(state, plan.text, { mergeSections: true, activity: { day: openDays().includes('พุธ') ? 'พุธ' : openDays()[0], start: 2 } });
     ui.assignTeacher = '';
     commit();
@@ -425,6 +543,7 @@
 
   async function loadSample() {
     if (!isEmpty() && !(await ask({ title: 'ใช้ข้อมูลตัวอย่าง?', msg: 'ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลตัวอย่าง', ok: 'แทนที่' }))) return;
+    if (!isEmpty()) checkpoint('ก่อนใช้ข้อมูลตัวอย่าง');
     state = TT.normalizeState(window.TTSample.sampleState(TT));
     ui.viewId = '';
     ui.tab = 'home';
@@ -981,12 +1100,15 @@
     $('#sample', el).onclick = loadSample;
     $('#new-term', el).onclick = async () => {
       if (!(await ask({ tone: 'danger', title: 'เริ่มภาคเรียนใหม่?', msg: 'ล้างวิชาที่มอบให้ครูและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้) แนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน', ok: 'ล้างและเริ่มใหม่' }))) return;
+      checkpoint('ก่อนเริ่มภาคเรียนใหม่');
       state.assignments = [];
       state.placements = [];
+      state.sessions = [];
       commit();
     };
     $('#wipe', el).onclick = async () => {
-      if (!(await ask({ tone: 'danger', title: 'ล้างข้อมูลทั้งหมด?', msg: 'ย้อนกลับไม่ได้ ควรบันทึกไฟล์สำรองก่อน', ok: 'ล้างทั้งหมด' }))) return;
+      if (!(await ask({ tone: 'danger', title: 'ล้างข้อมูลทั้งหมด?', msg: 'ระบบเก็บจุดกู้คืนไว้ให้ (ตั้งค่า → ประวัติ / กู้คืนข้อมูล) แต่ควรบันทึกไฟล์สำรองก่อน', ok: 'ล้างทั้งหมด' }))) return;
+      checkpoint('ก่อนล้างข้อมูลทั้งหมด');
       state = TT.emptyState();
       commit();
     };
@@ -2198,6 +2320,7 @@
     const ca = $('#clear-all', el);
     if (ca) ca.onclick = async () => {
       if (!(await ask({ tone: 'danger', title: 'ล้างตารางรายสัปดาห์ของทุกคน?', msg: 'นำคาบที่ไม่ได้ล็อกออก (กิจกรรมประจำและคาบที่ล็อกไว้จะอยู่เหมือนเดิม)', ok: 'ล้าง' }))) return;
+      checkpoint('ก่อนล้างตาราง');
       state.placements = state.placements.filter((p) => p.locked);
       commit();
     };
@@ -3272,6 +3395,7 @@
         ok: n ? 'ล้างเฉพาะทั้งเทอม' : 'ล้างรายสัปดาห์ด้วย', alt: n && w ? 'ล้างรายสัปดาห์ด้วย' : '' });
       if (!res) return;
       const alsoWeekly = res === 'alt' || !n;
+      checkpoint('ก่อนล้างตาราง');
       state.sessions = state.sessions.filter((x) => !inScope(x.assignmentId));
       if (alsoWeekly) state.placements = state.placements.filter((p) => p.locked || !inScope(p.assignmentId));
       ui.termSel = null;
@@ -3371,7 +3495,8 @@
       }
       const sum = next.teachers.length + ' ครู · ' + next.groups.length + ' กลุ่มเรียน · ' + next.subjects.length + ' รายวิชา · ' + next.assignments.filter((a) => !a.recurringId).length + ' วิชาที่มอบให้ครู';
       if (!(await ask({ title: 'เปิดไฟล์สำรอง "' + f.name + '"?', msg: 'ในไฟล์มี ' + sum + ' (ภาคเรียน ' + next.settings.semester + '/' + next.settings.year + ')',
-        q: 'ข้อมูลที่อยู่ในเว็บตอนนี้จะถูกแทนที่ทั้งหมด', ok: 'เปิดไฟล์นี้' }))) return;
+        q: 'ข้อมูลที่อยู่ในเว็บตอนนี้จะถูกแทนที่ (เก็บเป็นจุดกู้คืนให้ กู้คืนได้ที่ ตั้งค่า → ประวัติ / กู้คืนข้อมูล)', ok: 'เปิดไฟล์นี้' }))) return;
+      checkpoint('ก่อนเปิดไฟล์ ' + f.name);
       state = next;
       ui.viewId = '';
       ui.selected = null;
@@ -3392,13 +3517,23 @@
       menu.open = false;
       const k = b.dataset.menu;
       if (k === 'export') exportBackup();
+      else if (k === 'history') openHistory();
       else if (k === 'import') $('#menu-import').click();
       else if (k === 'school') { ui.dataTab = 'school'; go('data'); }
       else go(k);
     }));
     $('#menu-import').onchange = (e) => { importBackup(e.target.files[0]); e.target.value = ''; };
     document.addEventListener('click', (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+    $('#hdr-undo').onclick = () => stepHistory(-1);
+    $('#hdr-redo').onclick = () => stepHistory(1);
     document.addEventListener('keydown', (e) => {
+      // Ctrl+Z ย้อนกลับ · Ctrl+Y / Ctrl+Shift+Z ทำซ้ำ (ไม่ทำงานตอนพิมพ์ในช่องกรอก)
+      const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
+      if ((e.ctrlKey || e.metaKey) && !typing && !document.querySelector('dialog[open]')) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) { e.preventDefault(); stepHistory(-1); return; }
+        if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); stepHistory(1); return; }
+      }
       if (e.key === 'Escape' && (ui.selected || ui.termPick || ui.termSel) && !document.querySelector('dialog[open]')) {
         ui.selected = null;
         ui.termPick = null;
@@ -3407,6 +3542,11 @@
       }
     });
     TT.sanitizePlacements(state);
+    lastSaved = JSON.stringify(state);
+    if (!isEmpty()) checkpoint('ตอนเปิดเว็บ');
+    // ขอให้เบราว์เซอร์เก็บข้อมูลถาวร (ไม่ลบเองตอนพื้นที่เต็ม)
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ไม่รองรับ */ }
     render();
+    updateUndoButtons();
   });
 })();
