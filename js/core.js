@@ -380,13 +380,20 @@
   /** ตารางการใช้ทรัพยากร: resourceKey → Map(cellKey → [placementKey]) */
   function buildOccupancy(state, idx, skipKey) {
     const occ = new Map();
+    const combined = new Set(); // Home Room ครูเดียวกันหลายห้อง เวลาเดียวกัน = เรียนรวม นับครั้งเดียว
     for (const pl of state.placements) {
       const key = placementKey(pl.assignmentId, pl.blockIndex);
       if (key === skipKey) continue;
       const a = idx.assignments.get(pl.assignmentId);
       if (!a) continue;
       const len = assignmentBlocks(a, idx.subjects)[pl.blockIndex] || 0;
+      const groupRec = a.recurringId && (a.groupIds || []).length ? a.recurringId : '';
       for (const rk of resourceKeys(a, idx)) {
+        if (groupRec && !rk.startsWith('g:')) {
+          const ck = rk + '|' + groupRec + '|' + pl.day + '|' + pl.start + '|' + len;
+          if (combined.has(ck)) continue;
+          combined.add(ck);
+        }
         let m = occ.get(rk);
         if (!m) occ.set(rk, (m = new Map()));
         for (let p = pl.start; p < pl.start + len; p++) {
@@ -397,6 +404,12 @@
       }
     }
     return occ;
+  }
+
+  /** Home Room ของครูคนเดียวกันหลายห้อง (กิจกรรมประจำเดียวกัน) = คาบเรียนรวม */
+  function isCombinedWith(a, b) {
+    return !!a && !!b && a !== b && !!a.recurringId && a.recurringId === b.recurringId && !!a.teacherId && a.teacherId === b.teacherId &&
+      (a.groupIds || []).length > 0 && (b.groupIds || []).length > 0;
   }
 
   /** การใช้ทรัพยากรของตารางทั้งเทอม: resourceKey → Map("week|day|period" → [sessionId]) */
@@ -729,7 +742,9 @@
     const pers = periods(state.settings);
     const mine = state.assignments.filter((a) => a.teacherId === teacherId);
     const subj = new Map();
+    const recSeen = new Set();
     for (const a of mine) {
+      if (a.recurringId) { if (recSeen.has(a.recurringId)) continue; recSeen.add(a.recurringId); } // Home Room หลายห้อง = ชั่วโมงเดียว
       const s = a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const key = s ? 's:' + s.id : 'x:' + (a.title || 'กิจกรรม');
       if (!subj.has(key)) {
@@ -768,8 +783,17 @@
       for (const g of groups) rows.push({ ...base, group: g.code || g.name });
     }
     rows.sort((x, y) => x.day - y.day || x.start - y.start || String(x.group).localeCompare(String(y.group)));
+    const recPl = new Set();
     const scheduled = state.placements
       .filter((pl) => mineIds.has(pl.assignmentId))
+      .filter((pl) => { // Home Room หลายห้องเวลาเดียวกันนับครั้งเดียว
+        const a = idx.assignments.get(pl.assignmentId);
+        if (!a.recurringId) return true;
+        const k = a.recurringId + '|' + pl.day + '|' + pl.start;
+        if (recPl.has(k)) return false;
+        recPl.add(k);
+        return true;
+      })
       .reduce((sum, pl) => sum + (assignmentBlocks(idx.assignments.get(pl.assignmentId), idx.subjects)[pl.blockIndex] || 0), 0);
     return { subjects, totals, rows, scheduled };
   }
@@ -1427,7 +1451,6 @@
     state.assignments = state.assignments.filter((a) => !removedIds.has(a.id));
 
     const teachers = new Map(state.teachers.map((t) => [normName(t.name), t]));
-    const used = new Set([...keep].map((a) => a.teacherId).filter(Boolean));
     const res = { groups: state.groups.length, created: 0, withTeacher: 0, noAdvisor: 0, notFound: 0, duplicate: 0, error: '' };
     for (const g of state.groups) {
       let a = byGroup.get(g.id);
@@ -1445,11 +1468,7 @@
         const t = name ? teachers.get(name) : null;
         if (!name) res.noAdvisor++;
         else if (!t) res.notFound++;
-        else if (used.has(t.id)) res.duplicate++; // Home Room เวลาเดียวกัน ครู 1 คนสอนได้ 1 กลุ่ม
-        else {
-          a.teacherId = t.id;
-          used.add(t.id);
-        }
+        else a.teacherId = t.id; // ครูที่ปรึกษาหลายห้อง = Home Room ห้องเหล่านั้นรวมกัน
       }
       if (a.teacherId) res.withTeacher++;
       state.placements = state.placements.filter((p) => p.assignmentId !== a.id);
@@ -1476,16 +1495,13 @@
       const list = state.assignments.filter((x) => x.recurringId === r.id);
       const groupOf = (a) => state.groups.find((x) => x.id === (a.groupIds || [])[0]);
       const wantOf = (a) => { const g = groupOf(a); const t = g && normName(g.advisor) ? findTeacherByName(state, g.advisor) : null; return t ? t.id : ''; };
-      // Home Room เวลาเดียวกันทุกกลุ่ม: ครู 1 คนได้ 1 กลุ่ม — กลุ่มที่ตรงอยู่แล้วได้ก่อน
-      const used = new Set(list.filter((a) => a.teacherId && a.teacherId === wantOf(a)).map((a) => a.teacherId));
+      // ครูที่ปรึกษาเป็นได้หลายห้อง (Home Room ห้องเหล่านั้นเรียนรวมกัน ไม่นับว่าชน)
       for (const a of list) {
         const g = groupOf(a);
         if (!g) continue;
         const name = normName(g.advisor);
         if (name) {
-          let want = wantOf(a);
-          if (want && want !== a.teacherId && used.has(want)) want = '';
-          if (want) used.add(want);
+          const want = wantOf(a);
           if (a.teacherId !== want) { a.teacherId = want; changed++; }
         } else if (a.teacherId) {
           const t = state.teachers.find((x) => x.id === a.teacherId);
@@ -1830,6 +1846,7 @@
     placementKey,
     resourceKeys,
     sanitizePlacements,
+    isCombinedWith,
     setHours,
     hasWindow,
     windowOf,

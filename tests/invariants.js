@@ -71,9 +71,6 @@ module.exports = function invariants(s) {
       const per = new Map();
       for (const a of mine) { const g = a.groupIds[0]; per.set(g, (per.get(g) || 0) + 1); if ((a.groupIds || []).length !== 1) bad(r.title + ' กลุ่มไม่ใช่ 1'); }
       for (const g of s.groups) if ((per.get(g.id) || 0) !== 1) bad(r.title + ' กลุ่ม ' + g.name + ' มี ' + (per.get(g.id) || 0) + ' รายการ');
-      const tc = new Map();
-      for (const a of mine) if (a.teacherId) tc.set(a.teacherId, (tc.get(a.teacherId) || 0) + 1);
-      for (const [t, n] of tc) if (n > 1) bad(r.title + ' ครู ' + t + ' มี ' + n + ' กลุ่ม (เวลาเดียวกัน)');
       const copy = JSON.parse(JSON.stringify(s));
       if (TT.syncAdvisors(copy)) bad(r.title + ' ไม่ตรงกับครูที่ปรึกษาในข้อมูลกลุ่ม');
     }
@@ -81,7 +78,9 @@ module.exports = function invariants(s) {
   // ชั่วโมงสรุปของครู = ผลรวมรายการ
   for (const t of s.teachers) {
     const sum = TT.teacherSummary(s, t.id);
-    const h = s.assignments.filter((a) => a.teacherId === t.id).reduce((n, a) => n + TT.assignmentHours(a, subjMap), 0);
+    const mine = s.assignments.filter((a) => a.teacherId === t.id);
+    // Home Room ครูที่ปรึกษาหลายห้อง = เรียนรวม นับครั้งเดียว
+    const h = mine.filter((a, i) => !a.recurringId || mine.findIndex((x) => x.recurringId === a.recurringId) === i).reduce((n, a) => n + TT.assignmentHours(a, subjMap), 0);
     if (sum.totals.h !== h) bad('ชั่วโมงสรุปครู ' + t.name + ' ' + sum.totals.h + ' ≠ ' + h);
   }
   return P;

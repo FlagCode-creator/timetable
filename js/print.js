@@ -32,6 +32,7 @@
   function cellItems(state, filter, view, forEditor) {
     const idx = TT.indexState(state);
     const items = [];
+    const toHtml = (lines) => lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : 'c-line') + '">' + l + '</div>').join('');
     for (const pl of state.placements) {
       const a = idx.assignments.get(pl.assignmentId);
       if (!a || !filter(a)) continue;
@@ -40,11 +41,19 @@
       const room = a.roomId ? idx.rooms.get(a.roomId) : null;
       const teacher = idx.teachers.get(a.teacherId);
       const groups = a.groupIds.map((g) => idx.groups.get(g)).filter(Boolean).map((g) => g.name || g.code);
-      const lines = [esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <small>(Block Course)</small>' : '')];
-      if (view !== 'room' && room) lines.push(esc(room.name));
-      if (view !== 'teacher' && teacher) lines.push(esc(teacher.name));
-      else if (view !== 'teacher' && forEditor) lines.push('<span class="no-teacher">ยังไม่มีครู</span>');
-      if (view !== 'group' && groups.length) lines.push(esc(groups.join(', ')));
+      // Home Room ครูที่ปรึกษาหลายห้อง (ตารางครู/ห้อง): รวมเป็นช่องเดียว แสดงทุกห้อง
+      if (view !== 'group' && a.recurringId) {
+        const same = items.find((it) => it.day === pl.day && it.start === pl.start && TT.isCombinedWith(it.assignment, a));
+        if (same) {
+          same.groups.push(...groups);
+          same.html = toHtml(same.head.concat(esc(same.groups.join(', '))));
+          continue;
+        }
+      }
+      const head = [esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <small>(Block Course)</small>' : '')];
+      if (view !== 'room' && room) head.push(esc(room.name));
+      if (view !== 'teacher' && teacher) head.push(esc(teacher.name));
+      else if (view !== 'teacher' && forEditor) head.push('<span class="no-teacher">ยังไม่มีครู</span>');
       items.push({
         key: TT.placementKey(a.id, pl.blockIndex),
         day: pl.day,
@@ -55,7 +64,9 @@
         recurring: !!a.recurringId,
         color: colorClass(state, a),
         title: s ? s.code + ' ' + s.name : a.title,
-        html: lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : 'c-line') + '">' + l + '</div>').join(''),
+        head,
+        groups: groups.slice(),
+        html: toHtml(view !== 'group' && groups.length ? head.concat(esc(groups.join(', '))) : head),
       });
     }
     return items;

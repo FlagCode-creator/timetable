@@ -583,7 +583,7 @@
         commit();
         const g = state.groups.find((x) => x.id === sel.dataset.adv) || {};
         const t = state.teachers.find((x) => x.id === sel.value);
-        toast(t ? (g.name || g.code) + ' → ' + t.name : (g.name || g.code) + ' ยังไม่มีครู');
+        toast(t ? (g.name || g.code) + ' → ' + t.name + combinedNote(g.id, t.id) : (g.name || g.code) + ' ยังไม่มีครู');
       }));
     });
     $$('[data-lw]', el).forEach((inp) => (inp.onchange = () => {
@@ -633,7 +633,7 @@
       const res = TT.applyRecurring(clone, r.id);
       status = res.error
         ? '<li class="warn">' + ICON.info + '<span>' + esc(res.error) + '</span></li>'
-        : '<li>' + ICON.check + '<span>จะสร้างให้ ' + res.groups + ' กลุ่มเรียน ผู้สอนคือครูที่ปรึกษา (ครู 1 คน : 1 กลุ่ม)</span></li>' +
+        : '<li>' + ICON.check + '<span>จะสร้างให้ ' + res.groups + ' กลุ่มเรียน ผู้สอนคือครูที่ปรึกษา (ครู 1 คนเป็นที่ปรึกษาได้หลายห้อง = Home Room เรียนรวม)</span></li>' +
           '<li>' + ICON.check + '<span>มีครู ' + res.withTeacher + ' กลุ่ม · เว้นว่าง ' + (res.groups - res.withTeacher) + ' กลุ่ม' +
           (res.duplicate ? ' (ครูได้กลุ่มอื่นแล้ว ' + res.duplicate + ')' : '') +
           (res.notFound ? ' (ไม่พบชื่อในรายชื่อครู ' + res.notFound + ')' : '') +
@@ -683,14 +683,14 @@
       const a = byGroup.get(g.id);
       const opts = '<option value="">- ยังไม่มีครู -</option>' + state.teachers.map((t) => {
         const n = (count.get(t.id) || 0) - (t.id === a.teacherId ? 1 : 0);
-        return '<option value="' + esc(t.id) + '"' + (t.id === a.teacherId ? ' selected' : '') + '>' + esc(t.name) + (n > 0 ? ' (มีกลุ่มแล้ว)' : '') + '</option>';
+        return '<option value="' + esc(t.id) + '"' + (t.id === a.teacherId ? ' selected' : '') + '>' + esc(t.name) + (n > 0 ? ' (ที่ปรึกษาอีก ' + n + ' ห้อง)' : '') + '</option>';
       }).join('');
       let why = '';
-      if (!a.teacherId && norm(g.advisor)) {
-        const t = TT.findTeacherByName(state, g.advisor);
-        const other = t && mine.find((x) => x.teacherId === t.id);
-        const og = other && state.groups.find((x) => x.id === other.groupIds[0]);
-        why = '<small class="warn">ข้อมูลกลุ่ม: "' + esc(g.advisor) + '" ' + (t ? 'เป็นที่ปรึกษา ' + esc(og ? og.name || og.code : 'กลุ่มอื่น') + ' แล้ว (Home Room เวลาเดียวกัน)' : 'ไม่พบในรายชื่อครู') + '</small>';
+      if (!a.teacherId && norm(g.advisor) && !TT.findTeacherByName(state, g.advisor)) {
+        why = '<small class="warn">ข้อมูลกลุ่ม: "' + esc(g.advisor) + '" ไม่พบในรายชื่อครู</small>';
+      } else if (a.teacherId && (count.get(a.teacherId) || 0) > 1) {
+        const with_ = mine.filter((x) => x !== a && x.teacherId === a.teacherId).map((x) => state.groups.find((y) => y.id === x.groupIds[0])).filter(Boolean);
+        why = '<small class="muted">Home Room เรียนรวมกับ ' + esc(with_.map((y) => y.name || y.code).join(', ')) + '</small>';
       }
       return head + '<tr class="' + (a.teacherId ? '' : 'need-row') + (alt ? '' : ' alt') + '"><td>' + esc(g.name || g.code) + ' <small class="muted">' + esc(dept) + '</small>' + (why ? '<br>' + why : '') + '</td>' +
         '<td><select data-adv="' + esc(g.id) + '" aria-label="ครูที่ปรึกษา ' + esc(g.name || g.code) + '"' + (a.teacherId ? '' : ' class="need"') + '>' + opts + '</select></td></tr>';
@@ -1275,23 +1275,24 @@
   }
 
   /**
-   * เลือกครูที่ปรึกษาของกลุ่ม (Home Room เวลาเดียวกันทุกกลุ่ม → ครู 1 คนได้ 1 กลุ่ม)
-   * ถ้าครูเป็นที่ปรึกษากลุ่มอื่นอยู่ ถามก่อนว่าจะย้ายมากลุ่มนี้ไหม · คืนค่า true เมื่อเปลี่ยนแล้ว
+   * เลือกครูที่ปรึกษาของกลุ่ม · ครู 1 คนเป็นที่ปรึกษาได้หลายห้อง (Home Room ห้องเหล่านั้นเรียนรวมกัน ไม่นับว่าชน)
+   * คืนค่า true เมื่อเปลี่ยนแล้ว
    */
   async function chooseAdvisor(groupId, teacherId) {
-    const g = state.groups.find((x) => x.id === groupId) || {};
-    const t = teacherId ? state.teachers.find((x) => x.id === teacherId) : null;
-    if (t) {
-      const others = state.groups.filter((x) => x.id !== groupId && (TT.findTeacherByName(state, x.advisor) || {}).id === t.id);
-      if (others.length) {
-        const names = others.map((x) => x.name || x.code).join(', ');
-        if (!(await ask({ title: t.name + ' เป็นที่ปรึกษา ' + names + ' อยู่แล้ว', msg: 'Home Room ทุกกลุ่มเรียนเวลาเดียวกัน ครู 1 คนดูแลได้ 1 กลุ่ม',
-          q: 'ย้าย ' + t.name + ' มาเป็นที่ปรึกษา ' + (g.name || g.code) + ' แทนไหม? (' + names + ' จะยังไม่มีครูที่ปรึกษา)', ok: 'ย้ายมากลุ่มนี้', cancel: 'ไม่เปลี่ยน' }))) return false;
-        others.forEach((x) => TT.setAdvisor(state, x.id, ''));
-      }
-    }
     TT.setAdvisor(state, groupId, teacherId || '');
     return true;
+  }
+
+  /** " · Home Room เรียนรวมกับ ก, ข" ถ้าครูเป็นที่ปรึกษาห้องอื่นด้วย */
+  function combinedNote(groupId, teacherId) {
+    const o = advisorOthers(groupId, teacherId);
+    return o.length ? ' · Home Room เรียนรวมกับ ' + o.map((x) => x.name || x.code).join(', ') : '';
+  }
+
+  /** ห้องอื่นที่ครูคนนี้เป็นที่ปรึกษาอยู่ด้วย (ใช้แจ้งว่า Home Room เรียนรวม) */
+  function advisorOthers(groupId, teacherId) {
+    if (!teacherId) return [];
+    return state.groups.filter((x) => x.id !== groupId && (TT.findTeacherByName(state, x.advisor) || {}).id === teacherId);
   }
 
   /** แก้ชื่อครูที่ปรึกษาในหน้ากลุ่มเรียน → ผู้สอน Home Room ของกลุ่มเปลี่ยนตาม */
@@ -1313,8 +1314,8 @@
       save();
       fillDataBody();
       const blank = !state.assignments.some((a) => a.recurringId && (a.groupIds || [])[0] === g.id && a.teacherId);
-      toast(t && !blank ? 'Home Room ของ ' + (g.name || g.code) + ' → ' + t.name
-        : 'Home Room ของ ' + (g.name || g.code) + ' ยังไม่มีครู' + (t ? ' (' + t.name + ' เป็นที่ปรึกษากลุ่มอื่นอยู่)' : ''), blank && !!t);
+      toast(t && !blank ? 'Home Room ของ ' + (g.name || g.code) + ' → ' + t.name + combinedNote(g.id, t.id)
+        : 'Home Room ของ ' + (g.name || g.code) + ' ยังไม่มีครู', blank && !!t);
     });
   }
 
@@ -1597,8 +1598,9 @@
     const box = $('#tgrid');
     box.innerHTML = ts.map((t) => {
       const mine = state.assignments.filter((a) => a.teacherId === t.id);
-      const week = mine.reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
-      const term = mine.reduce((n, a) => n + hoursInfo(a, idx).total, 0);
+      const load = mine.filter((a, i) => !a.recurringId || mine.findIndex((x) => x.recurringId === a.recurringId) === i); // Home Room หลายห้อง นับครั้งเดียว
+      const week = load.reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
+      const term = load.reduce((n, a) => n + hoursInfo(a, idx).total, 0);
       const on = ui.assignTeacher === t.id;
       return '<article class="tcard' + (on ? ' on' : '') + '" data-tid="' + esc(t.id) + '">' +
         '<button class="tc-head" data-pick-t="' + esc(t.id) + '" aria-pressed="' + on + '">' +
@@ -1720,15 +1722,13 @@
         const keepOld = prevOld.advisor;
         if (newG !== oldG) TT.setAdvisor(state, oldG, '');
         if (!(await chooseAdvisor(newG, tId))) { if (newG !== oldG) { prevOld.advisor = keepOld; TT.syncAdvisors(state); } return; }
-        const r = { others: [] };
         const room = $('#e-room', dlg).value || null;
         state.assignments.forEach((x) => { if (x.recurringId === a.recurringId && x.groupIds[0] === newG) x.roomId = room; });
         dlg.close();
         commit();
         const g = state.groups.find((x) => x.id === newG) || {};
         const t = state.teachers.find((x) => x.id === tId);
-        toast(a.title + ' ' + (g.name || g.code) + ' → ' + (t ? t.name : 'ยังไม่มีครู') + (replaced ? ' (แทน ' + replaced + ')' : '') +
-          (r.others.length ? ' · เป็นที่ปรึกษา ' + r.others.map((x) => x.name || x.code).join(', ') + ' ด้วย' : ''), !!(replaced || r.others.length));
+        toast(a.title + ' ' + (g.name || g.code) + ' → ' + (t ? t.name : 'ยังไม่มีครู') + (replaced ? ' (แทน ' + replaced + ')' : '') + (t ? combinedNote(g.id, t.id) : ''), !!replaced);
         return;
       }
       if (!rec) {
@@ -1892,7 +1892,15 @@
         entityIdsOf(a, ui.view).forEach((id) => bump(id, st.total, st.placed, st.remaining ? 1 : 0));
       }
     } else {
-      for (const b of blocks) entityIdsOf(b.assignment, ui.view).forEach((id) => bump(id, b.len, b.placement ? b.len : 0, b.placement ? 0 : 1));
+      const recSeen = new Set(); // Home Room ครูที่ปรึกษาหลายห้อง = เรียนรวม นับครั้งเดียว
+      for (const b of blocks) entityIdsOf(b.assignment, ui.view).forEach((id) => {
+        if (b.assignment.recurringId && ui.view !== 'group') {
+          const k = id + '|' + b.assignment.recurringId;
+          if (recSeen.has(k)) return;
+          recSeen.add(k);
+        }
+        bump(id, b.len, b.placement ? b.len : 0, b.placement ? 0 : 1);
+      });
     }
     return stats;
   }
@@ -2528,7 +2536,7 @@
       if (!(await chooseAdvisor(g.id, advSel.value))) { render(); return; }
       commit();
       const t = state.teachers.find((x) => x.id === advSel.value);
-      toast(t ? 'ครูที่ปรึกษา ' + (g.name || g.code) + ' → ' + t.name : (g.name || g.code) + ' ยังไม่มีครูที่ปรึกษา');
+      toast(t ? 'ครูที่ปรึกษา ' + (g.name || g.code) + ' → ' + t.name + combinedNote(g.id, t.id) : (g.name || g.code) + ' ยังไม่มีครูที่ปรึกษา');
     };
     ['day', 'start', 'len'].forEach((k) => {
       const inp = $('#t-r' + k, el);
