@@ -3293,17 +3293,20 @@
       '<div class="toolbar no-print">' +
       '<div class="seg" role="group" aria-label="ประเภท">' + [['assign', 'มอบรายวิชาให้ครู'], ['teacher', 'ตารางสอนรายครู'], ['group', 'ตารางเรียนรายกลุ่ม'], ['room', 'ตารางการใช้ห้อง'], ['termt', 'ทั้งเทอม (ครู)'], ['termg', 'ทั้งเทอม (กลุ่มเรียน)']].map(([k, label]) =>
         '<button data-ptype="' + k + '" aria-pressed="' + (type === k) + '" class="' + (type === k ? 'active' : '') + '">' + label + '</button>').join('') + '</div>' +
+      (type === 'assign' ? '<div class="seg" role="group" aria-label="รูปแบบ"><button data-pstyle="card" class="' + (ui.printAssignStyle !== 'table' ? 'active' : '') + '">แบบการ์ด</button>' +
+        '<button data-pstyle="table" class="' + (ui.printAssignStyle === 'table' ? 'active' : '') + '">แบบตาราง</button></div>' : '') +
       (type === 'teacher' ? '<select id="pdept" aria-label="แผนกวิชา">' + options(state.departments, ui.printDept, (d) => 'แผนก' + d.name, 'ทุกแผนกวิชา') + '</select>' : '') +
       '<select id="pid" aria-label="เลือก"><option value="">ทั้งหมด (' + list.length + ')</option>' + list.map((x) =>
         '<option value="' + esc(x.id) + '"' + (x.id === ui.printId ? ' selected' : '') + '>' + esc(nameOf(x)) + '</option>').join('') + '</select>' +
       (type === 'teacher' ? '<label class="chk"><input type="checkbox" id="pdetail"' + (ui.printDetail ? ' checked' : '') + '> หน้ารายละเอียดคาบสอน (หน้า 2)</label>' : '') +
       '<span class="spacer"></span><button class="btn primary" id="pgo">พิมพ์ / บันทึกเป็น PDF</button></div>' +
       '<div id="print-area">' + (chosen.length ? chosen.map((x) =>
-        type === 'assign' ? P.assignPage(state, x) : type === 'teacher' ? P.teacherPages(state, x, ui.printDetail) : type === 'group' ? P.groupPage(state, x) : type === 'room' ? P.roomPage(state, x)
+        type === 'assign' ? (ui.printAssignStyle === 'table' ? P.assignPage(state, x) : P.assignCards(state, x)) : type === 'teacher' ? P.teacherPages(state, x, ui.printDetail) : type === 'group' ? P.groupPage(state, x) : type === 'room' ? P.roomPage(state, x)
           : P.termPage(state, x, type === 'termg' ? 'group' : 'teacher')).join('')
         : '<p class="hint">' + (type.startsWith('term') ? 'ยังไม่มีวิชาที่จัดแบบทั้งเทอม' : 'ไม่มีข้อมูลให้พิมพ์') + '</p>') + '</div>';
 
     $$('[data-ptype]', el).forEach((b) => (b.onclick = () => { ui.printType = b.dataset.ptype; ui.printId = ''; render(); }));
+    $$('[data-pstyle]', el).forEach((b) => (b.onclick = () => { ui.printAssignStyle = b.dataset.pstyle; render(); }));
     const pd = $('#pdept', el);
     if (pd) pd.onchange = (e) => { ui.printDept = e.target.value; ui.printId = ''; render(); };
     $('#pid', el).onchange = (e) => { ui.printId = e.target.value; render(); };

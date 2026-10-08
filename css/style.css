@@ -847,3 +847,25 @@ small.mates .ic { width: 12px; height: 12px; vertical-align: -2px; margin-right:
 .page.assign-page table.assign tr.sum td { font-weight: 700; background: #fafafa; }
 .page.assign-page table.assign td.muted { color: #666; }
 .page.assign-page table.assign tr { break-inside: avoid; }
+
+/* พิมพ์: มอบรายวิชาให้ครู แบบการ์ด */
+.page.assign-cards { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page .pc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; align-items: start; }
+.page .pc-card { border: 1px solid #999; border-radius: 10px; padding: 5px; display: flex; flex-direction: column; gap: 3px; break-inside: avoid; page-break-inside: avoid; }
+.page .pc-head { display: flex; justify-content: space-between; gap: 6px; padding: 2px 4px 4px; }
+.page .pc-head b { font-size: 12.5px; display: block; }
+.page .pc-head small { display: block; font-size: 10px; color: #444; }
+.page .pc-hours { text-align: right; }
+.page .pc-hours b { font-size: 16px; line-height: 1; }
+.page .pc-item, .page .pc-frame { border: 1px solid var(--b, #bbb); background: var(--f, #f6f6f6); color: var(--i, #000); border-radius: 7px; }
+.page .pc-item { display: flex; align-items: center; gap: 4px; padding: 3px 6px; }
+.page .pc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.page .pc-main b, .page .pc-fh b { font-size: 10.5px; font-weight: 600; }
+.page .pc-main small, .page .pc-sub { font-size: 9.5px; }
+.page .pc-h { font-size: 10px; font-weight: 700; min-width: 18px; padding: 0 5px; border-radius: 99px; background: rgba(255,255,255,.8); text-align: center; }
+.page .pc-frame { padding: 3px; display: flex; flex-direction: column; gap: 2px; }
+.page .pc-fh { display: flex; gap: 6px; align-items: baseline; padding: 0 3px; }
+.page .pc-fh small { font-size: 9px; opacity: .8; white-space: nowrap; }
+.page .pc-sub { display: flex; justify-content: space-between; align-items: center; gap: 4px; padding: 2px 5px; border-radius: 5px; background: rgba(255,255,255,.75); }
+.page .pc-tag { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 99px; background: var(--i, #333); color: #fff; font-size: 8.5px; font-weight: 600; }
+.page .pc-empty { margin: 4px; font-size: 10px; color: #666; }

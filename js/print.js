@@ -272,5 +272,60 @@
       '</div></section>';
   }
 
-  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage, assignPage };
+  /** มอบรายวิชาให้ครู แบบการ์ด (หน้าตาเหมือนการ์ดครูในหน้ามอบวิชาให้ครู) รายแผนก */
+  function assignCards(state, dept) {
+    const s = state.settings;
+    const idx = TT.indexState(state);
+    const pers = TT.periods(s);
+    const teachers = state.teachers.filter((t) => (dept.id === '__none' ? !idx.departments.get(t.departmentId) : t.departmentId === dept.id));
+    const gl = (a) => {
+      if (TT.isTeacherActivity(state, a)) {
+        const r = s.recurring.find((x) => x.id === a.recurringId) || {};
+        const st = pers[r.start - 1];
+        const en = pers[r.start + (Number(r.len) || 1) - 2];
+        return 'ครูทุกคน · วัน' + (r.day || '') + (st && en ? ' ' + st.start + '–' + en.end : '');
+      }
+      return a.groupIds.map((g) => (idx.groups.get(g) || {}).name || (idx.groups.get(g) || {}).code).filter(Boolean).join(' + ') || 'ยังไม่ได้เลือกกลุ่มเรียน';
+    };
+    const label = (a) => { const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null; return sj ? sj.code + ' ' + sj.name : a.title || 'กิจกรรม'; };
+    const comb = (a) => (a.groupIds.length > 1 && !a.recurringId ? '<span class="pc-tag">เรียนรวม</span>' : '');
+    const term = (a) => (TT.isTerm(a) ? ' · ทั้งเทอม' : '');
+    let deptWeek = 0;
+    const cards = teachers.map((t) => {
+      const mine = state.assignments.filter((a) => a.teacherId === t.id);
+      const load = mine.filter((a, i) => !a.recurringId || mine.findIndex((x) => x.recurringId === a.recurringId) === i);
+      const week = load.reduce((n, a) => n + TT.assignmentHours(a, idx.subjects), 0);
+      const termH = load.reduce((n, a) => n + (TT.isTerm(a) ? TT.termTotal(state, a, idx.subjects) : TT.assignmentHours(a, idx.subjects) * TT.weeksFor(state, a)), 0);
+      deptWeek += week;
+      const groups = new Map();
+      mine.forEach((a) => { const k = a.subjectId ? 's:' + a.subjectId : 'x:' + (a.title || 'กิจกรรม'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); });
+      const list = [...groups.values()].map((g) => {
+        const c = colorClass(state, g[0]);
+        if (g.length === 1) {
+          const a = g[0];
+          return '<div class="pc-item ' + c + '"><div class="pc-main"><b>' + esc(label(a)) + '</b><small>' + comb(a) + esc(gl(a)) + term(a) + '</small></div><span class="pc-h">' + TT.assignmentHours(a, idx.subjects) + '</span></div>';
+        }
+        const rec = !!g[0].recurringId;
+        return '<div class="pc-frame ' + c + '"><div class="pc-fh"><b>' + esc(label(g[0])) + '</b><small>' + g.length + ' กลุ่ม' + (rec ? '' : ' เรียนแยก') + '</small></div>' +
+          g.map((a) => '<div class="pc-sub"><span>' + comb(a) + esc(gl(a)) + term(a) + '</span><span class="pc-h">' + TT.assignmentHours(a, idx.subjects) + '</span></div>').join('') + '</div>';
+      }).join('');
+      const nSubj = groups.size;
+      return '<div class="pc-card"><div class="pc-head"><div><b>' + esc(t.name) + '</b><small>' + [idx.departments.get(t.departmentId) ? idx.departments.get(t.departmentId).name : '', t.position || '', nSubj ? nSubj + ' วิชา' : ''].filter(Boolean).map(esc).join(' · ') + '</small></div>' +
+        '<div class="pc-hours"><b>' + week + '</b><small>ชม./สัปดาห์</small><small>' + termH + ' ชม./เทอม</small></div></div>' +
+        (list || '<p class="pc-empty">ยังไม่มีรายวิชา</p>') + '</div>';
+    }).join('');
+    return '<section class="page detail assign-page assign-cards">' +
+      '<div class="room-head">' + logo(s) + '<div><div class="college">' + esc(s.collegeName) + '</div>' +
+      '<div><b>ภาระงานสอน (มอบรายวิชาให้ครู)</b> ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</div>' +
+      '<div><b>แผนกวิชา</b> ' + esc(dept.name) + ' · ครู ' + teachers.length + ' คน · รวม ' + deptWeek + ' ชม./สัปดาห์</div></div></div>' +
+      (teachers.length ? '<div class="pc-grid">' + cards + '</div>' : '<p>ไม่มีครูในแผนกนี้</p>') +
+      '<div class="sigs four">' +
+      sig(dept.head, 'หัวหน้าแผนกวิชา' + (dept.id === '__none' ? '' : dept.name)) +
+      sig(s.signers.curriculumHead, 'หัวหน้างานพัฒนาหลักสูตรการเรียนการสอน') +
+      sig(s.signers.viceDirector, 'รองผู้อำนวยการฝ่ายวิชาการ') +
+      sig(s.signers.director, 'ผู้อำนวยการ', 'อนุมัติ') +
+      '</div></section>';
+  }
+
+  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage, assignPage, assignCards };
 })(typeof window !== 'undefined' ? window : globalThis);
