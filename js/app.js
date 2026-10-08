@@ -3273,7 +3273,14 @@
   function renderPrint(el) {
     const type = ui.printType;
     const termIds = (match) => state.assignments.some((a) => TT.isTerm(a) && match(a));
-    let list = type === 'teacher' ? state.teachers : type === 'group' ? state.groups : type === 'room' ? state.rooms
+    // ภาระงานสอนรายแผนก: แผนกที่มีครู + "ไม่ระบุแผนก"
+    const deptList = () => {
+      const has = (id) => state.teachers.some((t) => t.departmentId === id);
+      const out = state.departments.filter((d) => has(d.id));
+      if (state.teachers.some((t) => !state.departments.some((d) => d.id === t.departmentId))) out.push({ id: '__none', name: 'ไม่ระบุแผนก', head: '' });
+      return out;
+    };
+    let list = type === 'assign' ? deptList() : type === 'teacher' ? state.teachers : type === 'group' ? state.groups : type === 'room' ? state.rooms
       : type === 'termt' ? state.teachers.filter((t) => termIds((a) => a.teacherId === t.id))
         : state.groups.filter((g) => termIds((a) => a.groupIds.includes(g.id)));
     if (type === 'teacher' && ui.printDept) list = list.filter((t) => t.departmentId === ui.printDept);
@@ -3284,7 +3291,7 @@
     el.innerHTML =
       '<div class="page-head no-print"><h1>พิมพ์</h1><p>กระดาษ A4 แนวนอน · ต้องการไฟล์ PDF ให้เลือกเครื่องพิมพ์ "บันทึกเป็น PDF" (Save as PDF)</p></div>' +
       '<div class="toolbar no-print">' +
-      '<div class="seg" role="group" aria-label="ประเภท">' + [['teacher', 'ตารางสอนรายครู'], ['group', 'ตารางเรียนรายกลุ่ม'], ['room', 'ตารางการใช้ห้อง'], ['termt', 'ทั้งเทอม (ครู)'], ['termg', 'ทั้งเทอม (กลุ่มเรียน)']].map(([k, label]) =>
+      '<div class="seg" role="group" aria-label="ประเภท">' + [['assign', 'มอบรายวิชาให้ครู'], ['teacher', 'ตารางสอนรายครู'], ['group', 'ตารางเรียนรายกลุ่ม'], ['room', 'ตารางการใช้ห้อง'], ['termt', 'ทั้งเทอม (ครู)'], ['termg', 'ทั้งเทอม (กลุ่มเรียน)']].map(([k, label]) =>
         '<button data-ptype="' + k + '" aria-pressed="' + (type === k) + '" class="' + (type === k ? 'active' : '') + '">' + label + '</button>').join('') + '</div>' +
       (type === 'teacher' ? '<select id="pdept" aria-label="แผนกวิชา">' + options(state.departments, ui.printDept, (d) => 'แผนก' + d.name, 'ทุกแผนกวิชา') + '</select>' : '') +
       '<select id="pid" aria-label="เลือก"><option value="">ทั้งหมด (' + list.length + ')</option>' + list.map((x) =>
@@ -3292,7 +3299,7 @@
       (type === 'teacher' ? '<label class="chk"><input type="checkbox" id="pdetail"' + (ui.printDetail ? ' checked' : '') + '> หน้ารายละเอียดคาบสอน (หน้า 2)</label>' : '') +
       '<span class="spacer"></span><button class="btn primary" id="pgo">พิมพ์ / บันทึกเป็น PDF</button></div>' +
       '<div id="print-area">' + (chosen.length ? chosen.map((x) =>
-        type === 'teacher' ? P.teacherPages(state, x, ui.printDetail) : type === 'group' ? P.groupPage(state, x) : type === 'room' ? P.roomPage(state, x)
+        type === 'assign' ? P.assignPage(state, x) : type === 'teacher' ? P.teacherPages(state, x, ui.printDetail) : type === 'group' ? P.groupPage(state, x) : type === 'room' ? P.roomPage(state, x)
           : P.termPage(state, x, type === 'termg' ? 'group' : 'teacher')).join('')
         : '<p class="hint">' + (type.startsWith('term') ? 'ยังไม่มีวิชาที่จัดแบบทั้งเทอม' : 'ไม่มีข้อมูลให้พิมพ์') + '</p>') + '</div>';
 

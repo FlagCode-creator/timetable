@@ -1965,6 +1965,7 @@
     resourceKeys,
     sanitizePlacements,
     isCombinedWith,
+    activityName,
     setHours,
     hasWindow,
     windowOf,

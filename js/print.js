@@ -218,5 +218,59 @@
     return html;
   }
 
-  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage };
+  /**
+   * ภาระงานสอน (มอบรายวิชาให้ครู) รายแผนก: ครูทุกคนในแผนก + รายวิชา/กลุ่มเรียน/ชั่วโมง ก่อนจัดตาราง
+   * dept = { id, name, head } (id '__none' = ครูที่ยังไม่ระบุแผนก)
+   */
+  function assignPage(state, dept) {
+    const s = state.settings;
+    const idx = TT.indexState(state);
+    const teachers = state.teachers.filter((t) => (dept.id === '__none' ? !idx.departments.get(t.departmentId) : t.departmentId === dept.id));
+    const gname = (ids) => ids.map((g) => (idx.groups.get(g) || {}).name || (idx.groups.get(g) || {}).code).filter(Boolean).join(', ');
+    let deptTotal = 0;
+    let no = 0;
+    const body = teachers.map((t) => {
+      const mine = state.assignments.filter((a) => a.teacherId === t.id);
+      // Home Room ครูที่ปรึกษาหลายห้อง = แถวเดียว ชั่วโมงเดียว
+      const rows = [];
+      const recRow = new Map();
+      for (const a of mine) {
+        const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
+        const h = TT.assignmentHours(a, idx.subjects);
+        if (a.recurringId && recRow.has(a.recurringId)) { recRow.get(a.recurringId).groups.push(...a.groupIds); continue; }
+        const r = { code: sj ? sj.code : a.title || 'กิจกรรม', name: sj ? sj.name : TT.activityName(state, a), tpn: sj ? [sj.t, sj.p, sj.n].join('-') : '',
+          groups: a.groupIds.slice(), h, term: TT.isTerm(a) ? TT.termTotal(state, a, idx.subjects) : 0, combined: a.groupIds.length > 1 && !a.recurringId, act: !sj,
+          teacherAct: TT.isTeacherActivity(state, a) };
+        if (a.recurringId) recRow.set(a.recurringId, r);
+        rows.push(r);
+      }
+      rows.sort((x, y) => (x.act - y.act) || String(x.code).localeCompare(String(y.code), 'th', { numeric: true }));
+      const total = rows.reduce((n, r) => n + r.h, 0);
+      deptTotal += total;
+      no++;
+      const span = Math.max(1, rows.length) + 1;
+      const who = '<td rowspan="' + span + '" class="c">' + no + '</td><td rowspan="' + span + '" class="l tname"><b>' + esc(t.name) + '</b>' +
+        (t.position ? '<div class="pos">' + esc(t.position) + '</div>' : '') + '</td>';
+      const line = (r, i) => '<tr>' + (i === 0 ? who : '') + '<td class="code">' + esc(r.code) + '</td><td class="l">' + esc(r.name) +
+        (r.term ? ' <small>(ทั้งเทอม ' + r.term + ' ชม.)</small>' : '') + '</td><td>' + esc(r.tpn) + '</td><td class="l">' +
+        (r.teacherAct ? 'ครูทุกคน' : esc(gname(r.groups)) + (r.combined || (r.act && r.groups.length > 1) ? ' <small>(เรียนรวม)</small>' : '')) + '</td><td>' + r.h + '</td></tr>';
+      return (rows.length ? rows.map(line).join('') : '<tr>' + who + '<td colspan="5" class="l muted">ยังไม่มีรายวิชา</td></tr>') +
+        '<tr class="sum"><td colspan="4" class="r">รวม</td><td>' + total + '</td></tr>';
+    }).join('');
+    return '<section class="page detail assign-page">' +
+      '<div class="room-head">' + logo(s) + '<div><div class="college">' + esc(s.collegeName) + '</div>' +
+      '<div><b>ภาระงานสอน (มอบรายวิชาให้ครู)</b> ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</div>' +
+      '<div><b>แผนกวิชา</b> ' + esc(dept.name) + ' · ครู ' + teachers.length + ' คน · รวม ' + deptTotal + ' ชม./สัปดาห์</div></div></div>' +
+      (teachers.length
+        ? '<table class="list assign"><thead><tr><th>ที่</th><th>ชื่อ-สกุล</th><th>รหัสวิชา</th><th>ชื่อรายวิชา</th><th>ท-ป-น</th><th>กลุ่มเรียน</th><th>ชม./<br>สัปดาห์</th></tr></thead><tbody>' + body + '</tbody></table>'
+        : '<p>ไม่มีครูในแผนกนี้</p>') +
+      '<div class="sigs four">' +
+      sig(dept.head, 'หัวหน้าแผนกวิชา' + (dept.id === '__none' ? '' : dept.name)) +
+      sig(s.signers.curriculumHead, 'หัวหน้างานพัฒนาหลักสูตรการเรียนการสอน') +
+      sig(s.signers.viceDirector, 'รองผู้อำนวยการฝ่ายวิชาการ') +
+      sig(s.signers.director, 'ผู้อำนวยการ', 'อนุมัติ') +
+      '</div></section>';
+  }
+
+  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage, assignPage };
 })(typeof window !== 'undefined' ? window : globalThis);

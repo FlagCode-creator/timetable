@@ -836,3 +836,14 @@ small.mates .ic { width: 12px; height: 12px; vertical-align: -2px; margin-right:
 .tsubj-h .tjoin { margin-left: auto; min-height: 26px; padding: 0 10px; font-size: 12px; }
 .comb-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--panel); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
 .comb-tag.first { margin: 0 4px 0 0; background: var(--accent); color: #fff; }
+
+/* พิมพ์: ภาระงานสอน (มอบรายวิชาให้ครู) */
+.page.assign-page table.assign { margin-top: 8px; font-size: 11px; }
+.page.assign-page table.assign th { background: #f2f2f2; }
+.page.assign-page table.assign td.code { white-space: nowrap; }
+.page.assign-page table.assign td.r { text-align: right; font-weight: 700; }
+.page.assign-page table.assign td.tname { min-width: 9em; vertical-align: top; }
+.page.assign-page table.assign .pos { font-size: 10px; color: #333; }
+.page.assign-page table.assign tr.sum td { font-weight: 700; background: #fafafa; }
+.page.assign-page table.assign td.muted { color: #666; }
+.page.assign-page table.assign tr { break-inside: avoid; }
