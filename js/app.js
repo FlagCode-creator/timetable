@@ -106,6 +106,7 @@
    * กล่องถาม/แจ้งเตือนแบบป๊อปอัป (แทน confirm/alert ของเบราว์เซอร์)
    * ask({ tone: 'warn'|'danger'|'info', title, msg, items: [], q, ok, cancel }) → Promise<true|false>
    * cancel: false = มีแค่ปุ่มตกลง (ใช้แจ้งเตือน)
+   * alt: ปุ่มทางเลือกที่สาม (คืนค่า 'alt')
    */
   function ask(o) {
     const dlg = $('#dlg-ask');
@@ -129,9 +130,15 @@
     okB.className = 'btn ask-ok ' + (tone === 'danger' ? 'solid-bad' : 'primary');
     noB.textContent = o.cancel || 'ยกเลิก';
     noB.hidden = o.cancel === false;
+    let altB = $('.ask-alt', dlg);
+    if (!altB) { altB = document.createElement('button'); altB.className = 'btn ask-alt'; okB.before(altB); }
+    altB.textContent = o.alt || '';
+    altB.hidden = !o.alt;
+    altB.className = 'btn ask-alt' + (tone === 'danger' ? ' danger' : '');
     return new Promise((resolve) => {
+      altB.onclick = () => done('alt');
       const done = (v) => {
-        okB.onclick = noB.onclick = dlg.onclick = dlg.oncancel = null;
+        okB.onclick = noB.onclick = altB.onclick = dlg.onclick = dlg.oncancel = null;
         if (dlg.open) dlg.close();
         resolve(v);
       };
@@ -1999,7 +2006,7 @@
           : '<span class="badge ok">ครบ</span>';
         return '<button class="eitem' + (x.id === ui.viewId ? ' active' : '') + '" data-ent="' + esc(x.id) + '">' +
           '<span class="ei-text"><span class="ei-name">' + esc(v.name(x)) + '</span><span class="ei-sub">' +
-          (ui.view === 'group' ? esc(x.code) + ' · ' : '') + st.placed + ' / ' + st.total + ' ชม.' + (ui.cal === 'term' ? ' ทั้งเทอม' : '') + '</span></span>' + badge + '</button>';
+          (ui.view === 'group' ? esc(x.code) + ' · ' : '') + (ui.cal === 'term' && !st.total ? 'ไม่มีวิชาทั้งเทอม' : st.placed + ' / ' + st.total + ' ชม.' + (ui.cal === 'term' ? ' ทั้งเทอม' : '')) + '</span></span>' + badge + '</button>';
       }).join('') + '</div>').join('') || '<p class="hint">ไม่พบ' + v.label + '</p>';
     $$('[data-ent]', box).forEach((b) => (b.onclick = () => { ui.viewId = b.dataset.ent; ui.selected = null; ui.termPick = null; ui.termSel = null; render(); }));
   }
@@ -2775,11 +2782,20 @@
       const w = Number(wk.dataset.week);
       $$('td.empty[data-p]', wk).forEach((td) => {
         const d = Number(td.dataset.d);
-        const start = TT.snapSession(state, a, w, d, Number(td.dataset.p), len, skipId, cache);
+        const p = Number(td.dataset.p);
+        // วางใหม่: ถ้าวันละเต็มจำนวนไม่พอ ระบบวางเท่าที่ว่าง (เหมือนตอนคลิก) — ช่องนั้นจึงเป็นสีเขียว
+        for (let n = len; n >= (moving ? len : 1); n--) {
+          const s0 = TT.snapSession(state, a, w, d, p, n, skipId, cache);
+          if (s0 != null && TT.checkSession(state, a, w, d, s0, n, skipId, cache).ok) {
+            td.classList.add('can');
+            td.title = 'วางได้: คาบ ' + s0 + '–' + (s0 + n - 1) + (n < len ? ' (ว่าง ' + n + ' ชม. จาก ' + len + ')' : '');
+            return;
+          }
+        }
+        const start = TT.snapSession(state, a, w, d, p, len, skipId, cache);
         if (start == null) { td.classList.add('nospan'); return; }
-        const r = TT.checkSession(state, a, w, d, start, len, skipId, cache);
-        td.classList.add(r.ok ? 'can' : 'clash');
-        td.title = (r.ok ? 'วางได้: ' : 'ชน: ') + 'คาบ ' + start + '–' + (start + len - 1) + (r.ok ? '' : '\n' + r.reasons.join('\n'));
+        td.classList.add('clash');
+        td.title = 'ชน: คาบ ' + start + '–' + (start + len - 1) + '\n' + TT.checkSession(state, a, w, d, start, len, skipId, cache).reasons.join('\n');
       });
     });
   }
@@ -2897,27 +2913,30 @@
       state.sessions = state.sessions.filter((x) => x.assignmentId !== b.dataset.tclr);
       commit();
     }));
-    const clr = $('#term-clear', el);
-    if (clr) clr.onclick = async () => {
-      if (!(await ask({ tone: 'danger', title: 'ล้างตารางทั้งเทอมของ "' + v.name(ent) + '"?', msg: 'วันที่วางไว้ทั้งหมดของทุกวิชาจะถูกนำออก', ok: 'ล้าง' }))) return;
-      const ids = new Set(state.assignments.filter((a) => v.match(a, ent.id)).map((a) => a.id));
-      state.sessions = state.sessions.filter((x) => !ids.has(x.assignmentId));
-      ui.termSel = null;
-      commit();
-    };
-    const clrAll = $('#term-clear-all', el);
-    if (clrAll) clrAll.onclick = async () => {
-      const n = state.sessions.length;
-      if (!n) { toast('ยังไม่มีวันที่วางไว้ในตารางทั้งเทอม'); return; }
-      const subj = new Set(state.sessions.map((x) => x.assignmentId)).size;
-      if (!(await ask({ tone: 'danger', title: 'ล้างตารางทั้งเทอมทั้งหมด (ทุกครู ทุกกลุ่ม)?',
-        msg: 'วันที่วางไว้ ' + n + ' วัน ของ ' + subj + ' วิชาจะถูกนำออกทั้งหมด · ตารางรายสัปดาห์ไม่เปลี่ยน · ควรบันทึกไฟล์สำรองก่อน', ok: 'ล้างทั้งหมด' }))) return;
-      state.sessions = [];
+    // ล้าง: ช่องสีเทาในตารางทั้งเทอม = ตารางรายสัปดาห์ (ไม่ถูกล้าง) — ให้เลือกล้างรายสัปดาห์ด้วยได้
+    const clearTerm = async (ids, who) => {
+      const inScope = (id) => !ids || ids.has(id);
+      const n = state.sessions.filter((x) => inScope(x.assignmentId)).length;
+      const w = state.placements.filter((p) => !p.locked && inScope(p.assignmentId)).length;
+      const ghost = 'ช่องสีเทาในตารางคือตารางรายสัปดาห์ (' + w + ' ก้อนที่ไม่ล็อก) ซึ่งไม่ถูกล้าง ถ้าต้องการให้ตารางว่างจริง ๆ เลือก "ล้างรายสัปดาห์ด้วย"';
+      if (!n && !w) { toast('ตาราง' + who + 'ว่างอยู่แล้ว (เหลือเฉพาะกิจกรรมที่ล็อกไว้)'); return; }
+      const res = await ask({ tone: 'danger', title: n ? 'ล้างตารางทั้งเทอม' + who + '?' : 'ตารางทั้งเทอม' + who + 'ว่างอยู่แล้ว',
+        msg: (n ? 'วันที่วางไว้ ' + n + ' วันจะถูกนำออก · ' : '') + (w ? ghost : 'ตารางรายสัปดาห์ไม่มีก้อนที่ต้องล้าง') + ' · ควรบันทึกไฟล์สำรองก่อน',
+        ok: n ? 'ล้างเฉพาะทั้งเทอม' : 'ล้างรายสัปดาห์ด้วย', alt: n && w ? 'ล้างรายสัปดาห์ด้วย' : '' });
+      if (!res) return;
+      const alsoWeekly = res === 'alt' || !n;
+      state.sessions = state.sessions.filter((x) => !inScope(x.assignmentId));
+      if (alsoWeekly) state.placements = state.placements.filter((p) => p.locked || !inScope(p.assignmentId));
       ui.termSel = null;
       ui.termPick = null;
+      ui.selected = null;
       commit();
-      toast('ล้างตารางทั้งเทอมแล้ว ' + n + ' วัน');
+      toast('ล้างแล้ว' + (n ? ' · ทั้งเทอม ' + n + ' วัน' : '') + (alsoWeekly && w ? ' · รายสัปดาห์ ' + w + ' ก้อน (ไปอยู่ที่ "ยังไม่ได้จัด")' : ''));
     };
+    const clr = $('#term-clear', el);
+    if (clr) clr.onclick = () => clearTerm(new Set(state.assignments.filter((a) => v.match(a, ent.id)).map((a) => a.id)), 'ของ "' + v.name(ent) + '"');
+    const clrAll = $('#term-clear-all', el);
+    if (clrAll) clrAll.onclick = () => clearTerm(null, 'ทั้งหมด (ทุกครู ทุกกลุ่ม)');
     $$('[data-trs]', el).forEach((b) => (b.onclick = () => {
       const [dh, dt] = b.dataset.trs.split(',').map(Number);
       const r = TT.resizeSession(state, ui.termSel, dh, dt);
