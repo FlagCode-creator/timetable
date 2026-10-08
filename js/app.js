@@ -914,24 +914,7 @@
     const ld = $('#logo-del', el);
     if (ld) ld.onclick = () => { s.logo = ''; commit(); };
     $('#export', el).onclick = exportBackup;
-    $('#import', el).onchange = (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      const r = new FileReader();
-      r.onload = async () => {
-        try {
-          const next = TT.normalizeState(JSON.parse(r.result));
-          if (!(await ask({ title: 'เปิดไฟล์สำรอง?', msg: 'ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลจากไฟล์ "' + f.name + '"', ok: 'แทนที่' }))) return;
-          state = next;
-          ui.viewId = '';
-          commit();
-          toast('เปิดไฟล์สำรองแล้ว');
-        } catch (err) {
-          toast('อ่านไฟล์ไม่ได้ ไฟล์ต้องเป็นไฟล์สำรองจากโปรแกรมนี้ (.json)', true);
-        }
-      };
-      r.readAsText(f);
-    };
+    $('#import', el).onchange = (e) => { importBackup(e.target.files[0]); e.target.value = ''; };
     $('#sample', el).onclick = loadSample;
     $('#new-term', el).onclick = async () => {
       if (!(await ask({ tone: 'danger', title: 'เริ่มภาคเรียนใหม่?', msg: 'ล้างวิชาที่มอบให้ครูและตารางทั้งหมด (เก็บครู รายวิชา กลุ่มเรียน ห้อง เงื่อนไขไว้) แนะนำให้บันทึกไฟล์สำรองของภาคเรียนเดิมก่อน', ok: 'ล้างและเริ่มใหม่' }))) return;
@@ -2998,6 +2981,32 @@
     $('#pgo', el).onclick = () => window.print();
   }
 
+  /** เปิดไฟล์สำรอง (.json) แทนข้อมูลปัจจุบัน — ใช้ทั้งเมนูตั้งค่าและหน้าข้อมูลสถานศึกษา */
+  function importBackup(f) {
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      let next;
+      try {
+        next = TT.normalizeState(JSON.parse(r.result));
+      } catch (err) {
+        toast('อ่านไฟล์ไม่ได้ ไฟล์ต้องเป็นไฟล์สำรองจากโปรแกรมนี้ (.json)', true);
+        return;
+      }
+      const sum = next.teachers.length + ' ครู · ' + next.groups.length + ' กลุ่มเรียน · ' + next.subjects.length + ' รายวิชา · ' + next.assignments.filter((a) => !a.recurringId).length + ' วิชาที่มอบให้ครู';
+      if (!(await ask({ title: 'เปิดไฟล์สำรอง "' + f.name + '"?', msg: 'ในไฟล์มี ' + sum + ' (ภาคเรียน ' + next.settings.semester + '/' + next.settings.year + ')',
+        q: 'ข้อมูลที่อยู่ในเว็บตอนนี้จะถูกแทนที่ทั้งหมด', ok: 'เปิดไฟล์นี้' }))) return;
+      state = next;
+      ui.viewId = '';
+      ui.selected = null;
+      ui.termPick = null;
+      ui.termSel = null;
+      commit();
+      toast('เปิดไฟล์สำรองแล้ว · ' + sum);
+    };
+    r.readAsText(f);
+  }
+
   /* ---------------------------------- เริ่ม ---------------------------------- */
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -3007,9 +3016,11 @@
       menu.open = false;
       const k = b.dataset.menu;
       if (k === 'export') exportBackup();
+      else if (k === 'import') $('#menu-import').click();
       else if (k === 'school') { ui.dataTab = 'school'; go('data'); }
       else go(k);
     }));
+    $('#menu-import').onchange = (e) => { importBackup(e.target.files[0]); e.target.value = ''; };
     document.addEventListener('click', (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && (ui.selected || ui.termPick || ui.termSel) && !document.querySelector('dialog[open]')) {
