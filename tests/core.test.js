@@ -713,3 +713,19 @@ test('ชนกัน: หาคาบที่ชน · แทนที่ (เ
   assert.strictEqual(TT.clashesAt(s, Object.assign({}, c, { id: 'other' }), { week: 2, day: 1, start: 2, len: 1 }).length, 1);
   assert.ok(d);
 });
+
+test('ปฏิทินภาคเรียน: เปิดเทอม 2 พ.ย. 2569 → 4 set set ละ 18 วันเรียน ตรงกับตารางกระดาษ', () => {
+  const s = TT.normalizeState(TT.emptyState());
+  const c = TT.termCalendar(s);
+  assert.deepStrictEqual(c.sets.map((x) => [x.from.iso, x.to.iso, x.school]), [
+    ['2026-11-02', '2026-12-01', 18], ['2026-12-02', '2026-12-31', 18], ['2027-01-04', '2027-02-02', 18], ['2027-02-03', '2027-03-04', 18]]);
+  const d = (iso) => c.days.find((x) => x.iso === iso);
+  assert.deepStrictEqual([d('2026-11-02').week, d('2026-11-02').day, d('2026-11-02').no], [1, 0, 1]);
+  assert.strictEqual(d('2026-11-06').kind, 'closed', 'ศุกร์ห้ามจัด');
+  assert.strictEqual(d('2026-11-07').kind, 'off', 'เสาร์');
+  assert.deepStrictEqual([d('2026-12-02').set, d('2026-12-02').no, d('2026-12-02').week, d('2026-12-02').day], [2, 1, 5, 2], 'พุธ 2 ธ.ค. = set 2 วันที่ 1 = สัปดาห์ 5 วันพุธ');
+  assert.strictEqual(d('2027-01-01').set, 3, 'ศุกร์ 1 ม.ค. อยู่ set ของวันเรียนถัดไป');
+  assert.deepStrictEqual([d('2027-03-04').week, d('2027-03-04').no], [18, 18]);
+  s.settings.termStart = '';
+  assert.strictEqual(TT.termCalendar(s), null);
+});

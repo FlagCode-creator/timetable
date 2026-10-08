@@ -869,3 +869,42 @@ small.mates .ic { width: 12px; height: 12px; vertical-align: -2px; margin-right:
 .page .pc-sub { display: flex; justify-content: space-between; align-items: center; gap: 4px; padding: 2px 5px; border-radius: 5px; background: rgba(255,255,255,.75); }
 .page .pc-tag { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 99px; background: var(--i, #333); color: #fff; font-size: 8.5px; font-weight: 600; }
 .page .pc-empty { margin: 4px; font-size: 10px; color: #666; }
+
+/* ตารางทั้งเทอมตามวันที่ (set) — เหมือนตารางกระดาษ */
+.term-set { margin-bottom: 18px; }
+.tt-grid tr.r-closed th.day, .tt-grid tr.r-closed td.blocked { background: #F6D44A; }
+.tt-grid tr.r-off th.day, .tt-grid tr.r-off td.blocked { background: #D9534F; color: #fff; }
+.tt-grid tr.r-off td.blocked .bi, .tt-grid tr.r-closed td.blocked .bi { background: none; }
+.tt-grid tr.r-off th.day .ddate, .tt-grid tr.r-off th.day .ddow { color: #fff; }
+.term-set .tt-grid th.day { white-space: nowrap; text-align: left; padding: 0 6px; }
+.term-set .tt-grid tr.r-off td, .term-set .tt-grid tr.r-off th { height: 14px; font-size: 11px; }
+.tt-grid th.day .dno { display: inline-block; min-width: 1.6em; font-weight: 700; }
+.tt-grid th.day .ddate { font-weight: 600; }
+.tt-grid th.day .ddow { margin-left: 4px; font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.lg.r-closed { background: #F6D44A; border: 1px solid #d9b52a; }
+.lg.r-off { background: #D9534F; border: 1px solid #b33d39; }
+.set-strip button small { white-space: nowrap; }
+.tv-seg { margin-right: 6px; }
+.tv-seg button { min-height: 28px; font-size: 12px; padding: 0 10px; }
+.ts-start { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); margin-right: 8px; white-space: nowrap; }
+.ts-start input { height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; background: var(--panel); font-size: 12px; }
+/* พิมพ์: 1 set ต่อหน้า */
+.page.term-set-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page.term-set-page table.tt-grid th, .page.term-set-page table.tt-grid td { height: 15px; padding: 0 2px; font-size: 8.5px; }
+.page.term-set-page table.tt-grid .c-code { font-size: 8.5px; }
+.page.term-set-page table.tt-grid .c-line { display: none; }
+.page.term-set-page table.tt-grid .c-code small { display: none; }
+.page.term-set-page table.tt-grid th.day { white-space: nowrap; text-align: left; }
+.page.term-set-page .ddow { margin-left: 3px; }
+.term-set .tt-grid th.day { min-width: 128px; }
+.term-set .tt-grid tr.r-off td.blocked .bi, .term-set .tt-grid tr.r-off td .bi { min-height: 0; height: 12px; padding: 0; }
+.term-set .tt-grid tr.r-off th.day { font-size: 11px; }
+.term-set .tt-grid tr.r-closed td.blocked .bi { min-height: 0; height: 22px; padding: 0; }
+.page.term-set-page table.tt-grid td.blk.w1 .c-line { display: none; }
+.page.term-set-page table.tt-grid td.blk.w1 .c-code { font-weight: 700; }
+.term-set .tt-grid tr.r-closed td, .term-set .tt-grid tr.r-closed th { height: 26px; }
+.term-set .tt-grid tr.r-off td, .term-set .tt-grid tr.r-off th { height: 14px; }
+.term-set .tt-grid tr.r-closed td.blocked .bi { height: auto; font-size: 11px; }
+.term-set .tt-grid th.day { min-width: 146px; }
+.term-set table.tt-grid th.corner { width: 132px; }
+.page.term-set-page table.tt-grid th.corner { width: 92px; }

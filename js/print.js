@@ -177,6 +177,46 @@
       buildGrid({ state, items }) + '</section>';
   }
 
+  const DAY_ABBR = { 'อาทิตย์': 'อา', 'จันทร์': 'จ', 'อังคาร': 'อ', 'พุธ': 'พ', 'พฤหัสบดี': 'พฤ', 'ศุกร์': 'ศ', 'เสาร์': 'ส' };
+
+  /**
+   * ตารางทั้งเทอมแบบวันที่ 1 set (แถว = วันที่ เหมือนตารางกระดาษ)
+   * o: { weekly: items ตารางรายสัปดาห์ (day = วันจริง), sessions: [session], sessItem(x) → item, editable, unavailable: Set "day|p", endWeek, seen: Set สัปดาห์ที่ใส่ id แล้ว }
+   */
+  function termSetGrid(state, st, o) {
+    const s = state.settings;
+    const P = TT.periods(s).length;
+    const blockedReal = TT.blockedCells(s);
+    const items = [];
+    const blocked = new Map();
+    const unav = new Set();
+    const rows = st.days.map((x, i) => {
+      const block = (why) => { for (let p = 1; p <= P; p++) if (!blocked.has(i + '|' + p)) blocked.set(i + '|' + p, why); };
+      if (x.kind === 'off') block(' ');
+      else {
+        for (const [ck, why] of blockedReal) { const [d, p] = ck.split('|'); if (Number(d) === x.day) blocked.set(i + '|' + p, why); }
+        if (o.endWeek && x.week > o.endWeek) block('จบภาคเรียนแล้ว');
+        for (const k of o.unavailable || []) { const [d, p] = k.split('|'); if (Number(d) === x.day) unav.add(i + '|' + p); }
+        for (const it of o.weekly || []) if (it.day === x.day) items.push(Object.assign({}, it, { day: i }));
+        for (const y of o.sessions || []) if (y.week === x.week && y.day === x.day) items.push(Object.assign({}, o.sessItem(y), { day: i }));
+      }
+      let id = '';
+      if (x.kind !== 'off' && o.seen && !o.seen.has(x.week)) { o.seen.add(x.week); id = 'tw-' + x.week; }
+      return {
+        label: '<span class="dno">' + (x.no || '') + '</span><span class="ddate">' + x.d + '/' + x.m + '/' + x.y + '</span><span class="ddow">' + esc(DAY_ABBR[x.dow] || '') + '</span>',
+        cls: 'r-' + x.kind,
+        attrs: x.kind === 'off' ? '' : 'data-week="' + x.week + '" data-date="' + x.iso + '"',
+        id,
+        day: x.day,
+      };
+    });
+    return buildGrid({ state, items, rows, editable: !!o.editable, unavailable: unav, blocked });
+  }
+
+  function dateText(x) {
+    return x ? x.d + '/' + x.m + '/' + x.y : '';
+  }
+
   /** ตารางทั้งเทอม: หน้าสรุป + ตารางจริงของแต่ละสัปดาห์ (รายสัปดาห์ + ทั้งเทอม) หน้าละ 2 สัปดาห์ */
   function termPage(state, ent, kind) {
     const s = state.settings;
@@ -206,6 +246,18 @@
       (rows ? '<table class="list"><thead><tr><th>รหัสวิชา</th><th>ชื่อวิชา</th><th>' + (kind === 'group' ? 'ครูผู้สอน' : 'กลุ่มเรียน') + '</th><th>ชม.ทั้งเทอม</th><th>จัดแล้ว</th><th>จำนวนวัน</th></tr></thead><tbody>' + rows + '</tbody></table>'
         : '<p>ไม่มีวิชาที่จัดแบบทั้งเทอม</p>') +
       '<p class="note">ตารางแต่ละสัปดาห์ในหน้าถัดไป แสดงตารางรายสัปดาห์รวมกับวิชาทั้งเทอม (วิชาทั้งเทอมมีเครื่องหมาย *)</p></section>';
+    const cal = TT.termCalendar(state);
+    if (cal) {
+      // ตามวันที่: 1 set ต่อหน้า เหมือนตารางกระดาษ
+      const endWeek = kind === 'group' ? TT.weeksForGroup(state, ent) : 0;
+      const sess = state.sessions.filter((x) => mine.some((a) => a.id === x.assignmentId));
+      for (const st of cal.sets) {
+        html += '<section class="page term-set-page"><div class="tw-title"><b>set ' + st.n + '</b> · ' + dateText(st.from) + ' – ' + dateText(st.to) + ' (' + st.school + ' วันเรียน) · ' +
+          esc(ent.name) + ' · ภาคเรียน ' + esc(s.semester) + '/' + esc(s.year) + '</div>' +
+          termSetGrid(state, st, { weekly, sessions: sess, sessItem: (x) => sessItems(x.week).find((it) => it.key === 'S:' + x.id), endWeek }) + '</section>';
+      }
+      return html;
+    }
     for (let w = 1; w <= s.weeks; w += 2) {
       html += '<section class="page term-weeks">';
       for (const ww of [w, w + 1]) {
@@ -327,5 +379,5 @@
       '</div></section>';
   }
 
-  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage, assignPage, assignCards };
+  root.TTPrint = { cellItems, colorClass, teacherPages, groupPage, roomPage, termPage, assignPage, assignCards, termSetGrid, dateText };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -28,9 +28,12 @@
    *  editable: ใส่ data-d / data-p ให้ช่องว่างเพื่อคลิก/ลากวาง
    *  unavailable: Set ของ "day|period" ที่ไม่ว่าง (เฉพาะคน/กลุ่มที่ดูอยู่)
    *  blocked: Map ของ "day|period" → เหตุผล (ห้ามจัดสำหรับทุกคน) แสดงเป็นแถบลาย
+   *  rows: (ตารางตามวันที่) [{ label (html), cls, attrs, day }] แทน settings.days — day = วันจริงที่ใส่ใน data-d
    */
   function buildGrid(opts) {
-    const s = opts.state.settings;
+    const s0 = opts.state.settings;
+    const rows = opts.rows;
+    const s = rows ? Object.assign({}, s0, { days: rows.map((r) => r.label) }) : s0;
     const cols = s.columns;
     const pers = TT.periods(s);
     const perByCol = new Map(pers.map((p) => [p.colIndex, p]));
@@ -70,8 +73,10 @@
     s.days.forEach((dayName, d) => {
       const lanes = lanesByDay[d];
       lanes.forEach((pieces, l) => {
-        html += '<tr class="' + (l === 0 ? 'day-first' : 'day-lane') + '">';
-        if (l === 0) html += '<th class="day" rowspan="' + lanes.length + '">' + esc(dayName) + '</th>';
+        const row = rows ? rows[d] : null;
+        html += '<tr class="' + (l === 0 ? 'day-first' : 'day-lane') + (row && row.cls ? ' ' + row.cls : '') + '"' + (row && row.attrs ? ' ' + row.attrs : '') + (row && row.id && l === 0 ? ' id="' + row.id + '"' : '') + '>';
+        if (l === 0) html += '<th class="day" rowspan="' + lanes.length + '">' + (row ? row.label : esc(dayName)) + '</th>';
+        const dd = row ? row.day : d; // data-d = วันจริง (ตารางตามวันที่: แถว ≠ วัน)
         const startAt = new Map(pieces.map((pc) => [pc.start, pc]));
         let skipUntil = 0;
         cols.forEach((c, ci) => {
@@ -84,7 +89,7 @@
             const it = pc.item;
             skipUntil = p + pc.len - 1;
             const attrs = opts.editable && !it.static
-              ? ' data-key="' + esc(it.key) + '" data-d="' + d + '" data-p="' + it.start + '" draggable="true"'
+              ? ' data-key="' + esc(it.key) + '" data-d="' + dd + '" data-p="' + it.start + '" draggable="true"'
               : '';
             html += '<td class="blk ' + esc(it.cls || '') + (pc.len === 1 ? ' w1' : '') + '" colspan="' + pc.len + '"' + attrs +
               (it.title ? ' title="' + esc(it.title) + '"' : '') + '><div class="bi">' + it.html + '</div></td>';
@@ -101,7 +106,7 @@
             html += '<td class="blocked" colspan="' + n + '" title="' + esc(why) + '"><div class="bi">' + (l === 0 && n >= 3 ? esc(why) : '') + '</div></td>';
             return;
           }
-          const attrs = opts.editable ? ' data-d="' + d + '" data-p="' + p + '"' : '';
+          const attrs = opts.editable && (!row || row.day >= 0) ? ' data-d="' + dd + '" data-p="' + p + '"' : '';
           html += '<td class="empty' + (unav.has(ck) ? ' unav' : '') + '"' + attrs + '><div class="bi"></div></td>';
         });
         html += '</tr>';

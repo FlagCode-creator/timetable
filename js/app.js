@@ -2967,7 +2967,26 @@
       const a = idx.assignments.get(x.assignmentId);
       if (a && v.match(a, ent.id)) hrs.set(x.week, (hrs.get(x.week) || 0) + x.len);
     }
-    let html = '<nav class="week-strip" aria-label="ไปยังสัปดาห์"><span class="ws-label">สัปดาห์</span>';
+    const cal = TT.termCalendar(state);
+    const byDate = cal && ui.termView !== 'week';
+    const toggle = '<div class="seg mini tv-seg" role="group" aria-label="มุมมองตารางทั้งเทอม">' +
+      '<button data-tview="date" class="' + (byDate ? 'active' : '') + '"' + (cal ? '' : ' disabled title="ตั้งวันเปิดภาคเรียนก่อน"') + '>ตามวันที่ (set)</button>' +
+      '<button data-tview="week" class="' + (byDate ? '' : 'active') + '">รายสัปดาห์</button></div>' +
+      '<label class="ts-start">เปิดเทอม <input type="date" id="term-start" value="' + esc(state.settings.termStart || '') + '"></label>';
+    if (byDate) {
+      // ปุ่มไปยัง set + ชั่วโมงทั้งเทอมใน set นั้น
+      const inSet = new Map();
+      for (const x of state.sessions) {
+        const a = idx.assignments.get(x.assignmentId);
+        if (!a || !v.match(a, ent.id)) continue;
+        const d = cal.days.find((y) => y.week === x.week && y.day === x.day);
+        if (d) inSet.set(d.set, (inSet.get(d.set) || 0) + x.len);
+      }
+      return '<nav class="week-strip set-strip" aria-label="ไปยัง set">' + toggle + cal.sets.map((st) =>
+        '<button data-jump="s' + st.n + '" class="' + (inSet.get(st.n) ? 'has' : '') + '"><b>set ' + st.n + '</b><small>' + P.dateText(st.from) + ' – ' + P.dateText(st.to) +
+        (inSet.get(st.n) ? ' · ' + inSet.get(st.n) + ' ชม.' : '') + '</small></button>').join('') + '</nav>';
+    }
+    let html = '<nav class="week-strip" aria-label="ไปยังสัปดาห์">' + toggle + '<span class="ws-label">สัปดาห์</span>';
     for (let w = 1; w <= state.settings.weeks; w++) {
       const h = hrs.get(w) || 0;
       html += '<button data-jump="' + w + '" class="' + (h ? 'has' : '') + '" title="สัปดาห์ที่ ' + w + (h ? ' · ทั้งเทอม ' + h + ' ชม.' : '') + '"><b>' + w + '</b><small>' + (h ? h + 'ชม.' : '–') + '</small></button>';
@@ -3014,6 +3033,21 @@
       };
     };
     let grids = '';
+    const cal = TT.termCalendar(state);
+    if (cal && ui.termView !== 'week') {
+      // ตามวันที่: 1 set = 1 ตาราง แถวละวันที่ (วันเรียนที่ 1–18, ศุกร์เหลือง, เสาร์-อาทิตย์แดง)
+      const seen = new Set();
+      const sessions = [...byWeek.values()].flat().map((y) => y.x);
+      const endWeek = ui.view === 'group' ? TT.weeksForGroup(state, ent) : 0;
+      for (const st of cal.sets) {
+        const hrs = sessions.filter((x) => st.days.some((d) => d.week === x.week && d.day === x.day)).reduce((n, x) => n + x.len, 0);
+        grids += '<div class="term-set" id="tw-s' + st.n + '"><div class="tw-head"><b>set ' + st.n + '</b><span>' + P.dateText(st.from) + ' – ' + P.dateText(st.to) + ' · ' + st.school + ' วันเรียน' +
+          (hrs ? ' · ทั้งเทอม ' + hrs + ' ชม.' : '') + '</span></div>' +
+          P.termSetGrid(state, st, { weekly, sessions, sessItem: (x) => sessItem({ x, a: idx.assignments.get(x.assignmentId) }), editable: true, unavailable: unav, endWeek, seen }) + '</div>';
+      }
+      return '<div class="legend term-legend"><span><i class="lg ghost"></i>ตารางรายสัปดาห์ (ทุกสัปดาห์)</span><span><i class="lg c0"></i><i class="lg c3"></i><i class="lg c6"></i>วิชาทั้งเทอม</span>' +
+        '<span><i class="lg can"></i>วางได้</span><span><i class="lg r-closed"></i>ศุกร์ (ห้ามจัด)</span><span><i class="lg r-off"></i>เสาร์-อาทิตย์</span></div>' + grids;
+    }
     for (let w = 1; w <= s.weeks; w++) {
       const list = byWeek.get(w) || [];
       const hrs = list.reduce((n, it) => n + it.x.len, 0);
@@ -3148,6 +3182,14 @@
     const wrap = $('#termwrap', el);
     const v = VIEWS[ui.view];
     const at = (td) => [Number(td.closest('[data-week]').dataset.week), Number(td.dataset.d), Number(td.dataset.p)];
+    $$('[data-tview]', el).forEach((b) => (b.onclick = () => { ui.termView = b.dataset.tview; render(); }));
+    const tsi = $('#term-start', el);
+    if (tsi) tsi.onchange = () => {
+      state.settings.termStart = tsi.value || '';
+      commit();
+      const c = TT.termCalendar(state);
+      toast(c ? 'วันเปิดภาคเรียน ' + P.dateText(c.days[0]) + ' · ' + c.sets.length + ' set' : 'ยังไม่ได้ตั้งวันเปิดภาคเรียน — แสดงแบบรายสัปดาห์');
+    };
     $$('[data-jump]', el).forEach((b) => (b.onclick = () => {
       const t = $('#tw-' + b.dataset.jump);
       if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });

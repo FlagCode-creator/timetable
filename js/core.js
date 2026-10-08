@@ -62,6 +62,8 @@
         plcAdded: true,
         weeks: 18,
         levelWeeks: { 'ปวช.': 18, 'ปวส.': 15 },
+        termStart: '2026-11-02', // วันเปิดภาคเรียน (ตารางทั้งเทอมแบบวันที่)
+        setDays: 18, // วันเรียนต่อ 1 set
         checkRooms: false,
       },
       departments: [],
@@ -96,6 +98,8 @@
     for (const k of Object.keys(out.settings.levelWeeks)) out.settings.levelWeeks[k] = Math.max(1, Math.min(40, Number(out.settings.levelWeeks[k]) || 18));
     // จำนวนตารางในโหมดทั้งเทอม = จำนวนสัปดาห์มากที่สุด
     out.settings.weeks = Math.max(...Object.values(out.settings.levelWeeks));
+    if (typeof out.settings.termStart !== 'string' || (out.settings.termStart && !/^\d{4}-\d{2}-\d{2}$/.test(out.settings.termStart))) out.settings.termStart = base.settings.termStart;
+    out.settings.setDays = Math.max(1, Math.min(60, Math.round(Number(out.settings.setDays) || 18)));
     for (const k of ['departments', 'teachers', 'subjects', 'groups', 'rooms', 'assignments', 'placements', 'sessions']) {
       if (!Array.isArray(out[k])) out[k] = [];
     }
@@ -1135,6 +1139,53 @@
     return res;
   }
 
+  /* ---------- ปฏิทินภาคเรียน (ตารางทั้งเทอมแบบวันที่ / set) ---------- */
+
+  const JS_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+
+  /**
+   * วันที่จริงของภาคเรียน: ทุกวันตั้งแต่วันเปิดเทอมจนจบสัปดาห์สุดท้าย
+   * แต่ละวัน → { iso, d, m, y, dow, week, day (index ใน settings.days หรือ -1), kind: 'school'|'closed'|'off', no (วันเรียนที่ใน set), set }
+   * week/day ตรงกับตารางทั้งเทอมเดิม (สัปดาห์ที่ 1 = สัปดาห์ของวันเปิดเทอม) · วันศุกร์/เสาร์/อาทิตย์ ผูกกับ set ของวันเรียนถัดไป
+   */
+  function termCalendar(state) {
+    const s = state.settings;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.termStart || '');
+    if (!m) return null;
+    const DAY = 86400000;
+    const start = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+    const monday = start - ((new Date(start).getUTCDay() + 6) % 7) * DAY;
+    const setDays = Math.max(1, Number(s.setDays) || 18);
+    const closed = new Set(s.closedDays || []);
+    const days = [];
+    let school = 0;
+    for (let t = start; ; t += DAY) {
+      const week = Math.floor((t - monday) / (7 * DAY)) + 1;
+      if (week > s.weeks) break;
+      const dt = new Date(t);
+      const name = JS_DAYS[dt.getUTCDay()];
+      const day = s.days.indexOf(name);
+      const kind = day < 0 ? 'off' : closed.has(name) ? 'closed' : 'school';
+      const it = { iso: dt.toISOString().slice(0, 10), d: dt.getUTCDate(), m: dt.getUTCMonth() + 1, y: dt.getUTCFullYear(), dow: name, week, day, kind };
+      if (kind === 'school') { school++; it.set = Math.ceil(school / setDays); it.no = school - (it.set - 1) * setDays; }
+      days.push(it);
+    }
+    // วันที่ไม่ใช่วันเรียน อยู่ใน set ของวันเรียนถัดไป (ท้ายเทอมอยู่ set สุดท้าย)
+    let next = null;
+    for (let i = days.length - 1; i >= 0; i--) {
+      if (days[i].kind === 'school') next = days[i].set;
+      else days[i].set = next || (school ? Math.ceil(school / setDays) : 1);
+    }
+    const sets = [];
+    for (const x of days) {
+      let st = sets[x.set - 1];
+      if (!st) st = sets[x.set - 1] = { n: x.set, days: [], from: null, to: null, school: 0 };
+      st.days.push(x);
+      if (x.kind === 'school') { st.school++; if (!st.from) st.from = x; st.to = x; }
+    }
+    return { days, sets: sets.filter(Boolean), setDays };
+  }
+
   /** ตั้ง ชม./สัปดาห์ ของรายการ (ตรงกับ ท+ป ของวิชา = ใช้ค่าเริ่มต้น ไม่งั้นแบ่งก้อนอัตโนมัติ) */
   function setHours(state, assignmentId, n) {
     const a = state.assignments.find((x) => x.id === assignmentId);
@@ -1966,6 +2017,7 @@
     sanitizePlacements,
     isCombinedWith,
     activityName,
+    termCalendar,
     setHours,
     hasWindow,
     windowOf,
