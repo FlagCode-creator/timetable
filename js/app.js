@@ -1771,16 +1771,33 @@
               : '<button class="btn icon ghost" data-unassign="' + esc(a.id) + '" aria-label="ยกเลิกการมอบ" title="ย้ายกลับไปที่ ยังไม่มีครู">' + ICON.x + '</button>') +
             '</div>';
           const term = (a) => (TT.isTerm(a) ? ' · ทั้งเทอม' : '');
-          if (list.length === 1) return chip(list[0], '<b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + esc(groupsLabel(list[0], idx)) + term(list[0]) + '</small>');
-          // วิชาเดียวกันหลายกลุ่ม: เขียนชื่อวิชาครั้งเดียว แล้วแยกกลุ่มไว้ข้างใต้
-          return '<div class="tsubj ' + P.colorClass(state, list[0]) + '"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม</small></div>' +
-            list.map((a) => chip(a, '<small class="g">' + esc(groupsLabel(a, idx)) + term(a) + '</small>')).join('') + '</div>';
+          const comb = (a) => (a.groupIds.length > 1 && !a.recurringId ? ' <span class="comb-tag" title="หลายกลุ่มเรียนพร้อมกัน ครู/เวลาเดียวกัน · แยกได้ที่ปุ่มแก้ไข">เรียนรวม</span>' : '');
+          if (list.length === 1) return chip(list[0], '<b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + (comb(list[0]) ? '<span class="comb-tag first">เรียนรวม</span>' : '') + esc(groupsLabel(list[0], idx)) + term(list[0]) + '</small>');
+          // วิชาเดียวกันหลายกลุ่ม (เรียนแยก): เขียนชื่อวิชาครั้งเดียว แล้วแยกกลุ่มไว้ข้างใต้ · ปุ่มเรียนรวม
+          const joinable = list.filter((a) => TT.canCombine(list[0], a) || a === list[0]);
+          return '<div class="tsubj ' + P.colorClass(state, list[0]) + '"><div class="tsubj-h"><b>' + esc(subjLabel(list[0], idx)) + '</b><small>' + list.length + ' กลุ่ม เรียนแยก</small>' +
+            (joinable.length > 1 ? '<button class="btn small tjoin" data-tjoin="' + esc(joinable.map((a) => a.id).join(',')) + '" title="ให้กลุ่มเหล่านี้เรียนวิชานี้พร้อมกัน ครู/เวลาเดียวกัน (ชั่วโมงสอนนับครั้งเดียว)">เรียนรวม</button>' : '') + '</div>' +
+            list.map((a) => chip(a, '<small class="g">' + esc(groupsLabel(a, idx)) + comb(a) + term(a) + '</small>')).join('') + '</div>';
         }).join('') || '<p class="hint">ยังไม่มีวิชา</p>') + '</div>' +
         '<button class="btn small ghost tc-add" data-new="' + esc(t.id) + '">+ เพิ่มวิชาให้ครูคนนี้</button>' +
         '</article>';
     }).join('') || '<div class="card empty-state">ยังไม่มีครู กด "+ เพิ่มครู" ด้านบน</div>';
     $$('[data-pick-t]', box).forEach((b) => (b.onclick = () => { ui.assignTeacher = ui.assignTeacher === b.dataset.pickT ? '' : b.dataset.pickT; render(); }));
     $$('[data-edit]', box).forEach((b) => (b.onclick = () => editAssignment(state.assignments.find((a) => a.id === b.dataset.edit))));
+    $$('[data-tjoin]', box).forEach((b) => (b.onclick = async () => {
+      const list = b.dataset.tjoin.split(',').map((id) => state.assignments.find((a) => a.id === id)).filter(Boolean);
+      if (list.length < 2) return;
+      const ix = TT.indexState(state);
+      const placed = (a) => state.placements.some((p) => p.assignmentId === a.id) || (state.sessions || []).some((x) => x.assignmentId === a.id);
+      const keep = list.find(placed) || list[0];
+      const dropped = list.filter((a) => a !== keep && placed(a)).length;
+      if (!(await ask({ title: 'ให้ ' + list.map((a) => groupsLabel(a, ix)).join(' + ') + ' เรียน ' + subjCode(keep, ix) + ' รวมกัน?',
+        msg: 'รวมเป็นรายการเดียว สอนพร้อมกันครั้งเดียว ชั่วโมงสอนของครูนับครั้งเดียว' + (placed(keep) ? ' · ใช้เวลาที่จัดไว้ของ ' + groupsLabel(keep, ix) : '') +
+          (dropped ? ' · คาบที่จัดไว้ของกลุ่มอื่น ' + dropped + ' รายการจะถูกนำออก' : '') + ' · แยกกลับได้ที่ปุ่มแก้ไข', ok: 'เรียนรวม' }))) return;
+      for (const a of list) if (a !== keep) TT.combineClasses(state, keep.id, a.id);
+      commit();
+      toast(subjCode(keep, TT.indexState(state)) + ' เรียนรวมแล้ว: ' + groupsLabel(keep, TT.indexState(state)));
+    }));
     $$('[data-unassign]', box).forEach((b) => (b.onclick = () => giveTo(state.assignments.find((a) => a.id === b.dataset.unassign), '')));
     $$('[data-unrec]', box).forEach((b) => (b.onclick = async () => {
       const a = state.assignments.find((x) => x.id === b.dataset.unrec);
@@ -1831,6 +1848,7 @@
           }).join('') + '</select></label>'
         : '<div class="field">กลุ่มเรียน<button type="button" class="btn" id="e-groups"' + (rec ? ' disabled' : '') + '>' + esc(groupsLabel(draft, idx)) + '</button></div>') +
       '<label class="field">ห้อง/สถานที่<select id="e-room">' + options(state.rooms, a.roomId, (r) => r.name, '-') + '</select></label>' +
+      (rec ? '' : '<div class="field span2 e-join"><span>เรียนรวม <small class="muted">(หลายกลุ่มเรียนวิชานี้พร้อมกัน ครู/เวลาเดียวกัน)</small></span><div id="e-joinbox" class="join-box"></div></div>') +
       '<label class="field">ชม./สัปดาห์<input type="number" min="1" max="40" id="e-hours" value="' + hours + '"' + (rec ? ' disabled' : '') + '></label>' +
       (rec ? '' :
         '<label class="field">การจัด<select id="e-plan"><option value="weekly"' + (TT.isTerm(a) ? '' : ' selected') + '>ตารางรายสัปดาห์ (ทุกสัปดาห์)</option>' +
@@ -1861,7 +1879,53 @@
       if (h) { $('#e-hours', dlg).value = h; const bl = $('#e-blocks', dlg); if (bl) bl.value = ''; }
     };
     const gb = $('#e-groups', dlg);
-    if (gb) gb.onclick = () => pickGroups(draft, () => { gb.textContent = groupsLabel(draft, TT.indexState(state)); });
+    // เรียนรวม: เพิ่มกลุ่ม (รวมรายการที่เรียนแยกอยู่เข้ามาตอนบันทึก) / แยกกลุ่มออกไปเรียนเอง
+    const joinSet = new Set();
+    const splitSet = new Set();
+    const subjOf = () => {
+      const txt = norm(($('#e-subj', dlg) || {}).value || '');
+      const code = txt.split(' ')[0];
+      const f = state.subjects.find((x) => norm(x.code) === code || norm(x.code + ' ' + x.name) === txt);
+      return f ? f.id : a.subjectId;
+    };
+    const drawJoin = () => {
+      const box = $('#e-joinbox', dlg);
+      if (!box) return;
+      const ix = TT.indexState(state);
+      const gs = draft.groupIds.map((g) => ix.groups.get(g)).filter(Boolean);
+      const first = gs[0];
+      const sid = subjOf();
+      const rest = state.groups.filter((x) => !draft.groupIds.includes(x.id));
+      const sib = first ? rest.filter((x) => isSiblingGroup(first, x)) : [];
+      const others = sortGroups(rest.filter((x) => !sib.includes(x))).map((x) => x.g);
+      const twin = (x) => sid && TT.groupSubjects(state, x.id).some((y) => y.subjectId === sid && y.id !== a.id);
+      const opt = (x) => '<option value="' + esc(x.id) + '">' + esc(x.name || x.code) + (twin(x) ? ' (มีวิชานี้แยกอยู่ → รวมเข้ามา)' : '') + '</option>';
+      box.innerHTML = (gs.length > 1 ? gs.map((g, i) => '<span class="join-chip">' + ICON.check + esc(g.name || g.code) +
+          (i > 0 || gs.length > 1 ? '<button type="button" data-jsplit="' + esc(g.id) + '" title="แยกกลุ่มนี้ออกไปเรียนเอง (ครูเดิม จัดเวลาใหม่)">แยกออก</button>' : '') + '</span>').join('')
+        : '<span class="muted">' + (gs.length ? 'เรียนกลุ่มเดียว' : 'ยังไม่ได้เลือกกลุ่มเรียน') + '</span>') +
+        (gs.length ? '<select id="e-jadd" aria-label="เพิ่มกลุ่มเรียนรวม"><option value="">+ เรียนรวมกับ…</option>' +
+          (sib.length ? '<optgroup label="ชั้นและแผนกเดียวกัน">' + sib.map(opt).join('') + '</optgroup>' : '') +
+          (others.length ? '<optgroup label="กลุ่มอื่น">' + others.map(opt).join('') + '</optgroup>' : '') + '</select>' : '') +
+        (splitSet.size ? '<small class="muted">แยกออกเมื่อกดบันทึก: ' + esc([...splitSet].map((g) => (ix.groups.get(g) || {}).name).join(', ')) + '</small>' : '');
+      const add = $('#e-jadd', box);
+      if (add) add.onchange = () => {
+        if (!add.value) return;
+        draft.groupIds.push(add.value);
+        joinSet.add(add.value);
+        if (gb) gb.textContent = groupsLabel(draft, TT.indexState(state));
+        drawJoin();
+      };
+      $$('[data-jsplit]', box).forEach((bt) => (bt.onclick = () => {
+        const g = bt.dataset.jsplit;
+        draft.groupIds = draft.groupIds.filter((x) => x !== g);
+        if (joinSet.has(g)) joinSet.delete(g); // เพิ่งเพิ่ม ยังไม่บันทึก → แค่เอาออก
+        else if (!isNew && a.groupIds.includes(g)) splitSet.add(g);
+        if (gb) gb.textContent = groupsLabel(draft, TT.indexState(state));
+        drawJoin();
+      }));
+    };
+    drawJoin();
+    if (gb) gb.onclick = () => pickGroups(draft, () => { gb.textContent = groupsLabel(draft, TT.indexState(state)); drawJoin(); });
     $('#e-cancel', dlg).onclick = () => dlg.close();
     $('#e-save', dlg).onclick = async () => {
       if (hrRec) {
@@ -1897,7 +1961,8 @@
         if (!text) { toast('ใส่ชื่อวิชาหรือกิจกรรมก่อน', true); return; }
         a.subjectId = found ? found.id : null;
         a.title = found ? '' : text;
-        a.groupIds = draft.groupIds;
+        // กลุ่มที่เลือก "เรียนรวมกับ…" รวมผ่าน joinClass (รายการที่เรียนแยกอยู่ถูกรวมเข้ามา) · กลุ่มที่กด "แยกออก" ได้รายการของตัวเอง
+        a.groupIds = draft.groupIds.filter((g) => !joinSet.has(g)).concat([...splitSet].filter((g) => !draft.groupIds.includes(g)));
         a.plan = $('#e-plan', dlg).value;
         const n = Math.max(1, Math.min(40, Math.round(Number($('#e-hours', dlg).value) || 1)));
         const blocks = norm($('#e-blocks', dlg).value);
@@ -1913,9 +1978,17 @@
       if (!teacherAct) a.teacherId = $('#e-teacher', dlg).value;
       a.roomId = $('#e-room', dlg).value || null;
       if (isNew) state.assignments.push(a);
+      let joinMsg = '';
+      if (!rec) {
+        for (const g of joinSet) TT.joinClass(state, a.id, g);
+        for (const g of splitSet) if (a.groupIds.length > 1) TT.splitClass(state, a.id, g);
+        const ix = TT.indexState(state);
+        if (joinSet.size) joinMsg += ' · เรียนรวม ' + groupsLabel(a, ix);
+        if (splitSet.size) joinMsg += ' · แยกเรียน ' + [...splitSet].map((g) => (ix.groups.get(g) || {}).name).join(', ');
+      }
       dlg.close();
       commit();
-      toast('บันทึกแล้ว');
+      toast('บันทึกแล้ว' + joinMsg);
     };
     const del = $('#e-del', dlg);
     if (del) del.onclick = async () => {
