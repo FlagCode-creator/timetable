@@ -806,3 +806,10 @@ dialog.when .btns { margin-top: 16px; flex-wrap: wrap; gap: 8px; }
 .when-btn .ic, .ch-win .ic { width: 13px; height: 13px; margin-right: 3px; vertical-align: -2px; }
 .when-btn.set { border-color: var(--accent); color: var(--accent); }
 .ch-win { display: block; font-size: 11px; color: var(--ink-2); margin-top: 2px; }
+
+/* รายวิชาของกลุ่ม: เลือกครูผู้สอนตอนเพิ่ม และในแต่ละแถว */
+.gs-addrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.gs-addrow .search { flex: 1 1 280px; width: auto; }
+.gs-who { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.gs-who select, select.gs-teach { height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; background: var(--panel); font-size: 13px; max-width: 220px; }
+select.gs-teach.need { border-color: var(--warn); color: var(--warn); }

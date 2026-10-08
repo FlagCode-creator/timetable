@@ -1023,6 +1023,7 @@
   function openGroupSubjects(gid) {
     const dlg = $('#dlg-gsub');
     let q = '';
+    let addTeacher = ''; // ครูผู้สอนของวิชาที่จะเพิ่ม (จำไว้จนปิดหน้าต่าง)
     const draw = () => {
       const g = state.groups.find((x) => x.id === gid);
       if (!g) { dlg.close(); return; }
@@ -1046,11 +1047,17 @@
         hits.sort((a, b) => codeKey(a.code).localeCompare(codeKey(b.code), 'th', { numeric: true }));
       }
       const others = sortGroups(state.groups.filter((x) => x.id !== gid && TT.groupSubjects(state, x.id).length));
+      // เลือกครูผู้สอนได้ในแถว: ครูแผนกเดียวกับกลุ่มขึ้นก่อน
+      const gDept = groupDept(g);
+      const teachers = state.teachers.slice().sort((x, y) => (y.departmentId === gDept) - (x.departmentId === gDept));
+      const teachSel = (a, attr, label) => '<select ' + attr + '="' + esc(a.id) + '" class="gs-teach' + (a.teacherId ? '' : ' need') + '" aria-label="' + esc(label) + '">' +
+        options(teachers, a.teacherId, (t) => t.name, '- ยังไม่มีครู -') + '</select>';
       dlg.innerHTML =
         '<div class="gs-head"><div><h3>รายวิชาของ ' + esc(g.name || g.code || 'กลุ่มใหม่') + '</h3>' +
         '<p class="hint">' + [TT.groupGrade(state, g), groupDeptName(g), list.length + ' วิชา', hrs + ' ชม./สัปดาห์'].filter(Boolean).map(esc).join(' · ') + '</p></div>' +
         '<button class="btn icon ghost" id="gs-close" aria-label="ปิด">' + ICON.x + '</button></div>' +
-        '<div class="gs-add"><label class="search">' + ICON.search + '<input type="search" id="gs-q" placeholder="ค้นรหัสหรือชื่อวิชาเพื่อเพิ่ม (คลังรายวิชา + รายวิชา 2/2568)" value="' + esc(q) + '"></label>' +
+        '<div class="gs-add"><div class="gs-addrow"><label class="search">' + ICON.search + '<input type="search" id="gs-q" placeholder="ค้นรหัสหรือชื่อวิชาเพื่อเพิ่ม (คลังรายวิชา + รายวิชา 2/2568)" value="' + esc(q) + '"></label>' +
+        '<label class="gs-who">ครูผู้สอน <select id="gs-teacher" aria-label="ครูผู้สอนของวิชาที่จะเพิ่ม">' + options(teachers, addTeacher, (t) => t.name, '- เลือกทีหลัง -') + '</select></label></div>' +
         (hits.length ? '<div class="gs-hits">' + hits.slice(0, 12).map((h) => {
           const inGroup = h.id && have.has(h.id);
           return '<button class="gs-hit' + (inGroup ? ' in' : '') + '" data-gadd="' + esc(h.code) + '"' + (inGroup ? ' disabled' : '') + '>' +
@@ -1067,18 +1074,20 @@
             return '<tr class="' + (i % 2 ? 'alt' : '') + '"><td class="nowrap">' + esc(sj ? sj.code : '') + '</td><td>' + esc(sj ? sj.name : a.title) +
               (mates.length ? '<br><small class="muted">เรียนรวมกับ ' + esc(mates.join(', ')) + '</small>' : '') + '</td>' +
               '<td class="c">' + esc(sj ? [sj.t, sj.p, sj.n].join('-') : '') + '</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td>' +
-              '<td>' + (t ? esc(t.name) : '<span class="warn">ยังไม่มีครู</span>') + '</td>' +
+              '<td>' + teachSel(a, 'data-gteach', 'ครูผู้สอน ' + (sj ? sj.code : a.title)) + '</td>' +
               '<td><button class="btn icon danger" data-gdel="' + esc(a.id) + '" aria-label="เอาวิชานี้ออกจากกลุ่ม" title="เอาวิชานี้ออกจากกลุ่ม">' + ICON.x + '</button></td></tr>';
           }).join('') +
-          rec.map((a) => '<tr class="rec-row"><td class="nowrap">' + ICON.lock + ' ' + esc(a.title) + '</td><td class="muted" colspan="2">กิจกรรมประจำ (ตั้งที่ ตั้งค่า → เงื่อนไข)</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td><td>' + esc((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู') + '</td><td></td></tr>').join('') +
+          rec.map((a) => '<tr class="rec-row"><td class="nowrap">' + ICON.lock + ' ' + esc(a.title) + '</td><td class="muted" colspan="2">กิจกรรมประจำ (ตั้งที่ ตั้งค่า → เงื่อนไข)</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td><td>' +
+            (TT.isTeacherActivity(state, a) ? esc((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู') : teachSel(a, 'data-gadv', 'ครูที่ปรึกษา (' + a.title + ')')) + '</td><td></td></tr>').join('') +
           '</tbody></table>' : '<p class="empty-row">ยังไม่มีรายวิชา — ค้นหาด้านบนเพื่อเพิ่ม หรือคัดลอกจากกลุ่มอื่นด้านล่าง</p>') + '</div>' +
         '<div class="gs-foot">' +
         (others.length ? '<label class="tl">คัดลอกรายวิชาจาก <select id="gs-from"><option value="">เลือกกลุ่ม…</option>' +
           others.map(({ g: x, grade }) => '<option value="' + esc(x.id) + '">' + esc((grade ? grade + ' · ' : '') + (x.name || x.code)) + ' (' + TT.groupSubjects(state, x.id).length + ' วิชา)</option>').join('') +
           '</select></label><button class="btn small" id="gs-copy">คัดลอก</button>' : '') +
-        '<span class="spacer"></span><span class="hint">วิชาที่เพิ่มจะไปรอที่ <b>มอบวิชาให้ครู → ยังไม่มีครู</b></span>' +
+        '<span class="spacer"></span><span class="hint">เลือกครูผู้สอนได้ในตาราง · วิชาที่ยังไม่มีครูรอที่ <b>มอบวิชาให้ครู → ยังไม่มีครู</b></span>' +
         '<button class="btn primary" id="gs-done">เสร็จ</button></div>';
 
+      $('#gs-teacher', dlg).onchange = (e) => { addTeacher = e.target.value; };
       const qi = $('#gs-q', dlg);
       qi.oninput = () => { q = qi.value; draw(); const n = $('#gs-q', dlg); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
       $$('[data-gadd]', dlg).forEach((b) => (b.onclick = () => {
@@ -1091,10 +1100,34 @@
           state.subjects.push(sj);
         }
         const r = TT.addSubjectToGroup(state, gid, sj.id);
+        const t = addTeacher && state.teachers.find((x) => x.id === addTeacher);
+        if (r.assignment && t) r.assignment.teacherId = t.id;
         save();
-        toast(r.exists ? 'กลุ่มนี้มี ' + sj.code + ' อยู่แล้ว' : 'เพิ่ม ' + sj.code + ' ' + sj.name + (TT.isActivitySubject(sj) ? ' (ลงตารางพุธ 09:00 ล็อกให้แล้ว)' : ''));
+        toast(r.exists ? 'กลุ่มนี้มี ' + sj.code + ' อยู่แล้ว (เปลี่ยนครูได้ในตารางด้านล่าง)' : 'เพิ่ม ' + sj.code + ' ' + sj.name + (t ? ' · ครูผู้สอน ' + t.name : ' · ยังไม่มีครู') + (TT.isActivitySubject(sj) ? ' (ลงตารางพุธ 09:00 ล็อกให้แล้ว)' : ''));
         draw();
         const n = $('#gs-q', dlg); if (n) n.focus();
+      }));
+      $$('[data-gteach]', dlg).forEach((sel) => (sel.onchange = () => {
+        const a = state.assignments.find((x) => x.id === sel.dataset.gteach);
+        if (!a) return;
+        const sj = state.subjects.find((x) => x.id === a.subjectId);
+        a.teacherId = sel.value || '';
+        save();
+        const t = state.teachers.find((x) => x.id === a.teacherId);
+        const keys = new Set([...state.placements.filter((p) => p.assignmentId === a.id).map((p) => p.assignmentId + '#' + p.blockIndex),
+          ...(state.sessions || []).filter((x) => x.assignmentId === a.id).map((x) => 'S:' + x.id)]);
+        const clash = t ? TT.findConflicts(state).list.filter((c) => [...c.keys].some((k) => keys.has(k))).length : 0;
+        const mates = a.groupIds.length > 1 ? ' (เรียนรวม ' + a.groupIds.length + ' กลุ่ม เปลี่ยนให้ทุกกลุ่ม)' : '';
+        toast((sj ? sj.code : a.title) + ' → ' + (t ? t.name : 'ยังไม่มีครู') + mates + (clash ? ' · ครูมีคาบชน ' + clash + ' จุด (ดูที่หน้าจัดตาราง)' : ''), !!clash);
+        draw();
+      }));
+      $$('[data-gadv]', dlg).forEach((sel) => (sel.onchange = async () => {
+        await chooseAdvisor(gid, sel.value || '');
+        save();
+        const t = state.teachers.find((x) => x.id === sel.value);
+        toast(t ? 'ครูที่ปรึกษา ' + (g.name || g.code) + ' → ' + t.name + combinedNote(gid, t.id) : (g.name || g.code) + ' ยังไม่มีครูที่ปรึกษา');
+        draw();
+        fillDataBody();
       }));
       $$('[data-gdel]', dlg).forEach((b) => (b.onclick = async () => {
         const a = state.assignments.find((x) => x.id === b.dataset.gdel);
