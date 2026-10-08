@@ -652,3 +652,32 @@ test('วัน/เวลาที่กำหนด: ชื่อวันท�
   assert.strictEqual(TT.windowOf(s, s.assignments[0]).days, null);
   assert.ok(TT.autoSchedule(s, { seed: 1 }).complete);
 });
+
+test('เรียนรวม/แยกเรียน: สายตรงกับ ม.6 รวมบางวิชา แยกบางวิชา', () => {
+  const s = mini();
+  TT.addSubjectToGroup(s, 'g1', 's1').assignment.teacherId = 't1';
+  const b = TT.addSubjectToGroup(s, 'g2', 's1').assignment;
+  b.teacherId = 't2';
+  TT.addSubjectToGroup(s, 'g1', 's2');
+  s.placements.push({ assignmentId: b.id, blockIndex: 0, day: 0, start: 1, locked: false });
+  const a = TT.groupSubjects(s, 'g1').find((x) => x.subjectId === 's1');
+  const r = TT.joinClass(s, a.id, 'g2');
+  assert.deepStrictEqual(a.groupIds, ['g1', 'g2']);
+  assert.strictEqual(a.teacherId, 't1', 'ใช้ครูของรายการที่กดรวม');
+  assert.strictEqual(r.replacedTeacher, 't2');
+  assert.ok(!s.assignments.some((x) => x.id === b.id), 'รายการแยกของ g2 ถูกรวม');
+  assert.ok(!s.placements.some((p) => p.assignmentId === b.id), 'คาบของรายการแยกถูกนำออก');
+  assert.strictEqual(TT.groupSubjects(s, 'g2').length, 1);
+  assert.ok(TT.joinClass(s, a.id, 'g2').already);
+  // แยกกลับ: ได้รายการของตัวเอง ครูเดิม
+  const sp = TT.splitClass(s, a.id, 'g2');
+  assert.deepStrictEqual(a.groupIds, ['g1']);
+  assert.deepStrictEqual(sp.assignment.groupIds, ['g2']);
+  assert.strictEqual(sp.assignment.teacherId, 't1');
+  assert.ok(TT.splitClass(s, a.id, 'g1').error, 'กลุ่มเดียวแยกไม่ได้');
+  // รวมทุกวิชาที่เหมือนกัน: s1 มีทั้งสองกลุ่ม s2 มีเฉพาะ g1
+  assert.strictEqual(TT.joinSameSubjects(s, 'g1', 'g2'), 1);
+  assert.strictEqual(TT.groupSubjects(s, 'g2').length, 1);
+  assert.strictEqual(TT.groupSubjects(s, 'g1').find((x) => x.subjectId === 's2').groupIds.length, 1, 'วิชาที่มีกลุ่มเดียวไม่ถูกรวม');
+  assert.deepStrictEqual(require('./invariants.js')(s), []);
+});

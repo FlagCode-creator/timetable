@@ -1590,6 +1590,56 @@
     return { deleted: true };
   }
 
+  /**
+   * ให้กลุ่ม groupId มาเรียนรวมในรายการ assignmentId (ครู/เวลาเดียวกัน)
+   * ถ้ากลุ่มนั้นมีวิชาเดียวกันแยกอยู่ → รายการแยกถูกรวมเข้ามา (คาบที่จัดไว้ของรายการแยกถูกนำออก)
+   * ครู: ใช้ครูของรายการนี้ ถ้ายังไม่มีใช้ครูของรายการแยก
+   */
+  function joinClass(state, assignmentId, groupId) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId) return { error: 'รวมไม่ได้' };
+    if (!state.groups.some((g) => g.id === groupId)) return { error: 'ไม่พบกลุ่มเรียน' };
+    if (a.groupIds.includes(groupId)) return { already: true };
+    const res = { merged: null, replacedTeacher: '' };
+    const twin = a.subjectId ? groupSubjects(state, groupId).find((x) => x.subjectId === a.subjectId) : null;
+    if (twin) {
+      if (!a.teacherId && twin.teacherId) a.teacherId = twin.teacherId;
+      else if (twin.teacherId && twin.teacherId !== a.teacherId) res.replacedTeacher = twin.teacherId;
+      res.merged = twin.id;
+      if (twin.groupIds.length > 1) twin.groupIds = twin.groupIds.filter((g) => g !== groupId); // รายการแยกเรียนรวมกับกลุ่มอื่นอยู่: ดึงเฉพาะกลุ่มนี้
+      else {
+        state.assignments = state.assignments.filter((x) => x !== twin);
+        state.placements = state.placements.filter((p) => p.assignmentId !== twin.id);
+        state.sessions = (state.sessions || []).filter((x) => x.assignmentId !== twin.id);
+      }
+    }
+    a.groupIds.push(groupId);
+    return res;
+  }
+
+  /** แยกกลุ่ม groupId ออกจากรายการเรียนรวม เป็นรายการของตัวเอง (ครู/รูปแบบเดิม ยังไม่ได้จัดตาราง) */
+  function splitClass(state, assignmentId, groupId) {
+    const a = state.assignments.find((x) => x.id === assignmentId);
+    if (!a || a.recurringId || a.groupIds.length < 2 || !a.groupIds.includes(groupId)) return { error: 'แยกไม่ได้' };
+    a.groupIds = a.groupIds.filter((g) => g !== groupId);
+    const copy = JSON.parse(JSON.stringify(a));
+    copy.id = uid('a');
+    copy.groupIds = [groupId];
+    state.assignments.push(copy);
+    return { assignment: copy };
+  }
+
+  /** รวมทุกวิชาที่สองกลุ่มมีเหมือนกัน (แยกกันอยู่) เป็นเรียนรวม · คืนจำนวนวิชาที่รวม */
+  function joinSameSubjects(state, groupId, otherId) {
+    let n = 0;
+    for (const a of groupSubjects(state, groupId).slice()) {
+      if (!a.subjectId || a.groupIds.includes(otherId)) continue;
+      if (!groupSubjects(state, otherId).some((x) => x.subjectId === a.subjectId)) continue;
+      if (!joinClass(state, a.id, otherId).error) n++;
+    }
+    return n;
+  }
+
   /** คัดลอกรายวิชาจากอีกกลุ่ม (เฉพาะวิชา ไม่รวมครู/ตาราง) */
   function copyGroupSubjects(state, fromId, toId) {
     const res = { added: 0, existing: 0 };
@@ -1863,6 +1913,9 @@
     addSubjectToGroup,
     removeSubjectFromGroup,
     copyGroupSubjects,
+    joinClass,
+    splitClass,
+    joinSameSubjects,
     recurringSlotOk,
     syncRecurringPlacements,
     groupGrade,

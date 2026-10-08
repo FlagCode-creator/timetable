@@ -1048,8 +1048,12 @@
       }
       const others = sortGroups(state.groups.filter((x) => x.id !== gid && TT.groupSubjects(state, x.id).length));
       // เลือกครูผู้สอนได้ในแถว: ครูแผนกเดียวกับกลุ่มขึ้นก่อน
-      const gDept = groupDept(g);
-      const teachers = state.teachers.slice().sort((x, y) => (y.departmentId === gDept) - (x.departmentId === gDept));
+      const gDept = groupDeptId(g);
+      const teachers = state.teachers.slice().sort((x, y) => (y.departmentId === gDept && !!gDept) - (x.departmentId === gDept && !!gDept));
+      // กลุ่มชั้นและแผนกเดียวกัน (เช่น สายตรง / ม.6) — เลือกเรียนรวมรายวิชาได้
+      const grade = TT.groupGrade(state, g);
+      const sibs = sortGroups(state.groups.filter((x) => x.id !== gid && isSiblingGroup(g, x))).map((x) => x.g);
+      const sameCount = (o) => list.filter((a) => a.subjectId && !a.groupIds.includes(o.id) && TT.groupSubjects(state, o.id).some((x) => x.subjectId === a.subjectId)).length;
       const teachSel = (a, attr, label) => '<select ' + attr + '="' + esc(a.id) + '" class="gs-teach' + (a.teacherId ? '' : ' need') + '" aria-label="' + esc(label) + '">' +
         options(teachers, a.teacherId, (t) => t.name, '- ยังไม่มีครู -') + '</select>';
       dlg.innerHTML =
@@ -1071,8 +1075,12 @@
             const sj = idx.subjects.get(a.subjectId);
             const t = idx.teachers.get(a.teacherId);
             const mates = a.groupIds.filter((x) => x !== gid).map((x) => (idx.groups.get(x) || {}).name).filter(Boolean);
+            const canJoin = sibs.filter((o) => !a.groupIds.includes(o.id));
+            const join = canJoin.length ? '<select class="gs-join" data-gjoin="' + esc(a.id) + '" aria-label="เรียนรวมกับกลุ่มอื่น"><option value="">+ เรียนรวมกับ…</option>' +
+              canJoin.map((o) => '<option value="' + esc(o.id) + '">' + esc(o.name || o.code) + (TT.groupSubjects(state, o.id).some((x) => x.subjectId === a.subjectId) ? ' (มีวิชานี้แยกอยู่)' : '') + '</option>').join('') + '</select>' : '';
             return '<tr class="' + (i % 2 ? 'alt' : '') + '"><td class="nowrap">' + esc(sj ? sj.code : '') + '</td><td>' + esc(sj ? sj.name : a.title) +
-              (mates.length ? '<br><small class="muted">เรียนรวมกับ ' + esc(mates.join(', ')) + '</small>' : '') + '</td>' +
+              (mates.length ? '<br><small class="mates">' + ICON.check + 'เรียนรวมกับ ' + esc(mates.join(', ')) + '</small> <button class="linkish" data-gsplit="' + esc(a.id) + '">แยกเรียน</button>' : '') +
+              (join ? '<br>' + join : '') + '</td>' +
               '<td class="c">' + esc(sj ? [sj.t, sj.p, sj.n].join('-') : '') + '</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td>' +
               '<td>' + teachSel(a, 'data-gteach', 'ครูผู้สอน ' + (sj ? sj.code : a.title)) + '</td>' +
               '<td><button class="btn icon danger" data-gdel="' + esc(a.id) + '" aria-label="เอาวิชานี้ออกจากกลุ่ม" title="เอาวิชานี้ออกจากกลุ่ม">' + ICON.x + '</button></td></tr>';
@@ -1080,6 +1088,8 @@
           rec.map((a) => '<tr class="rec-row"><td class="nowrap">' + ICON.lock + ' ' + esc(a.title) + '</td><td class="muted" colspan="2">กิจกรรมประจำ (ตั้งที่ ตั้งค่า → เงื่อนไข)</td><td class="c">' + TT.assignmentHours(a, idx.subjects) + '</td><td>' +
             (TT.isTeacherActivity(state, a) ? esc((idx.teachers.get(a.teacherId) || {}).name || 'ยังไม่มีครู') : teachSel(a, 'data-gadv', 'ครูที่ปรึกษา (' + a.title + ')')) + '</td><td></td></tr>').join('') +
           '</tbody></table>' : '<p class="empty-row">ยังไม่มีรายวิชา — ค้นหาด้านบนเพื่อเพิ่ม หรือคัดลอกจากกลุ่มอื่นด้านล่าง</p>') + '</div>' +
+        (sibs.some((o) => sameCount(o)) ? '<div class="gs-sibs">' + ICON.info + '<span>มีวิชาเดียวกันแต่เรียนแยกกับกลุ่มชั้นและแผนกเดียวกัน:</span>' +
+          sibs.filter((o) => sameCount(o)).map((o) => '<button class="btn small" data-gjoinall="' + esc(o.id) + '">รวมเป็นเรียนรวมกับ ' + esc(o.name || o.code) + ' (' + sameCount(o) + ' วิชา)</button>').join('') + '</div>' : '') +
         '<div class="gs-foot">' +
         (others.length ? '<label class="tl">คัดลอกรายวิชาจาก <select id="gs-from"><option value="">เลือกกลุ่ม…</option>' +
           others.map(({ g: x, grade }) => '<option value="' + esc(x.id) + '">' + esc((grade ? grade + ' · ' : '') + (x.name || x.code)) + ' (' + TT.groupSubjects(state, x.id).length + ' วิชา)</option>').join('') +
@@ -1129,6 +1139,48 @@
         draw();
         fillDataBody();
       }));
+      // เรียนรวม: ถ้าอีกกลุ่มมีวิชานี้แยกอยู่ (มีครูอื่น/จัดตารางแล้ว) ถามก่อน
+      const joinOne = async (a, oid) => {
+        const o = state.groups.find((x) => x.id === oid) || {};
+        const sj = state.subjects.find((x) => x.id === a.subjectId);
+        const twin = TT.groupSubjects(state, oid).find((x) => x.subjectId === a.subjectId);
+        const twinPlaced = twin && (state.placements.some((p) => p.assignmentId === twin.id) || (state.sessions || []).some((x) => x.assignmentId === twin.id));
+        const twinT = twin && twin.teacherId && twin.teacherId !== a.teacherId && a.teacherId ? (state.teachers.find((t) => t.id === twin.teacherId) || {}).name : '';
+        if ((twinPlaced || twinT) && !(await ask({ title: 'ให้ ' + (o.name || o.code) + ' เรียน ' + (sj ? sj.code : a.title) + ' รวมกับ ' + (g.name || g.code) + '?',
+          msg: 'รายการที่ ' + (o.name || o.code) + ' เรียนแยกอยู่จะถูกรวมเข้ามา' + (twinT ? ' · ครูผู้สอนเป็นครูของกลุ่มนี้ (แทน ' + twinT + ')' : '') + (twinPlaced ? ' · คาบที่จัดไว้ของรายการแยกจะถูกนำออก' : ''),
+          ok: 'รวมเป็นเรียนรวม' }))) return false;
+        TT.joinClass(state, a.id, oid);
+        return true;
+      };
+      $$('[data-gjoin]', dlg).forEach((sel) => (sel.onchange = async () => {
+        const a = state.assignments.find((x) => x.id === sel.dataset.gjoin);
+        if (!a || !sel.value) return;
+        const o = state.groups.find((x) => x.id === sel.value) || {};
+        if (!(await joinOne(a, sel.value))) { draw(); return; }
+        save();
+        const sj = state.subjects.find((x) => x.id === a.subjectId);
+        toast((sj ? sj.code : a.title) + ' เรียนรวม ' + (g.name || g.code) + ' + ' + (o.name || o.code) + ' (ครูเดียวกัน เวลาเดียวกัน)');
+        draw();
+      }));
+      $$('[data-gsplit]', dlg).forEach((b) => (b.onclick = async () => {
+        const a = state.assignments.find((x) => x.id === b.dataset.gsplit);
+        if (!a) return;
+        const sj = state.subjects.find((x) => x.id === a.subjectId);
+        if (!(await ask({ title: 'แยก ' + (g.name || g.code) + ' ออกมาเรียน ' + (sj ? sj.code : a.title) + ' เอง?', msg: 'จะได้รายการของกลุ่มนี้เอง ครูเดิม · ต้องจัดเวลาใหม่ (ยังไม่ได้วางในตาราง)', ok: 'แยกเรียน' }))) return;
+        TT.splitClass(state, a.id, gid);
+        save();
+        toast((sj ? sj.code : a.title) + ' ของ ' + (g.name || g.code) + ' แยกเรียนแล้ว · ไปจัดเวลาที่หน้าจัดตาราง');
+        draw();
+      }));
+      $$('[data-gjoinall]', dlg).forEach((b) => (b.onclick = async () => {
+        const o = state.groups.find((x) => x.id === b.dataset.gjoinall) || {};
+        const n = sameCount(o);
+        if (!(await ask({ title: 'รวม ' + n + ' วิชาที่เหมือนกันเป็นเรียนรวม?', msg: (g.name || g.code) + ' กับ ' + (o.name || o.code) + ' จะเรียนวิชาเหล่านี้พร้อมกัน (ครูของกลุ่มนี้) · คาบที่จัดไว้ของรายการแยกของ ' + (o.name || o.code) + ' จะถูกนำออก · วิชาที่มีเฉพาะกลุ่มเดียวยังเรียนแยก', ok: 'รวม ' + n + ' วิชา' }))) return;
+        const done = TT.joinSameSubjects(state, gid, o.id);
+        save();
+        toast('รวมเป็นเรียนรวมแล้ว ' + done + ' วิชา (' + (g.name || g.code) + ' + ' + (o.name || o.code) + ')');
+        draw();
+      }));
       $$('[data-gdel]', dlg).forEach((b) => (b.onclick = async () => {
         const a = state.assignments.find((x) => x.id === b.dataset.gdel);
         if (!a) return;
@@ -1172,6 +1224,28 @@
   function sortGroups(list) {
     return list.map((g) => ({ g, grade: TT.groupGrade(state, g), dept: groupDeptName(g) }))
       .sort((x, y) => TT.gradeRank(x.grade) - TT.gradeRank(y.grade) || x.dept.localeCompare(y.dept, 'th') || String(x.g.code).localeCompare(String(y.g.code)));
+  }
+
+  /** id แผนกของกลุ่ม (ตั้งไว้ หรือเดาจากสาขา/ชื่อ) */
+  function groupDeptId(g) {
+    if (g.departmentId) return g.departmentId;
+    const name = groupDept(g);
+    const d = name && state.departments.find((x) => x.name === name);
+    return d ? d.id : '';
+  }
+
+  /**
+   * กลุ่มคู่กัน เช่น สายตรง / ม.6: ชั้นปีเดียวกัน และ (แผนกเดียวกัน หรือรหัสต่างกันแค่ 2 หลักท้าย หรือชื่อเดียวกันเมื่อตัด สายตรง/ม.6 ออก)
+   */
+  function isSiblingGroup(g, x) {
+    const grade = TT.groupGrade(state, g);
+    if (!grade || TT.groupGrade(state, x) !== grade) return false;
+    const d = groupDeptId(g);
+    if (d && d === groupDeptId(x)) return true;
+    const c1 = String(g.code || '').trim(), c2 = String(x.code || '').trim();
+    if (c1.length >= 7 && c1.length === c2.length && c1.slice(0, -2) === c2.slice(0, -2)) return true;
+    const base = (n) => norm(n).replace(/สาย\s*ตรง|ตรง|ม\.?\s*6|ม\s*\.?6|[\s.\/]/g, '');
+    return !!base(g.name) && base(g.name) === base(x.name);
   }
 
   /** เดาแผนกของกลุ่มเรียน (ถ้ายังไม่ได้ตั้ง): สาขาวิชาหรือชื่อกลุ่มที่มีชื่อแผนกอยู่ เช่น "ปวช.1 ช่างยนต์ 68" → ช่างยนต์ */
