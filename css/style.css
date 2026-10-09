@@ -919,3 +919,5 @@ dialog.hist { width: min(720px, calc(100vw - 32px)); }
 #hdr-undo:disabled, #hdr-redo:disabled { opacity: .35; }
 /* วิชาทั้งเทอม: สัปดาห์ที่เลยภาคเรียนของกลุ่ม (เช่น ปวส. หลังสัปดาห์ที่ 15) */
 .tt-grid td.nospan.ended .bi { background: repeating-linear-gradient(-45deg, #eee 0 6px, #f8f8f8 6px 12px); border-color: #e2e2e2; }
+.btn.unlock { border-color: var(--accent); color: var(--accent); }
+.btn.unlock .ic, .btn[data-unlockw] .ic { width: 13px; height: 13px; margin-right: 3px; vertical-align: -2px; }

@@ -294,6 +294,14 @@
     return gs.length ? Math.max(...gs.map((g) => weeksForGroup(state, g))) : state.settings.weeks;
   }
 
+  /**
+   * สัปดาห์สุดท้ายที่วางวิชาทั้งเทอมได้: ตามระดับ (ปวช. 18 / ปวส. 15)
+   * ถ้ากด "ปลดล็อกสัปดาห์" (a.unlockWeeks) วางได้ถึงสัปดาห์สุดท้ายของตาราง (ชั่วโมงทั้งเทอมยังคิดตามระดับ)
+   */
+  function termWeeks(state, a) {
+    return a && a.unlockWeeks ? state.settings.weeks : Math.min(state.settings.weeks, weeksFor(state, a));
+  }
+
   /** ชั่วโมงทั้งเทอม = ชม./สัปดาห์ × จำนวนสัปดาห์ของระดับ (ปวช. 18, ปวส. 15) หรือค่าที่กำหนดเอง */
   function termTotal(state, a, subjectsById) {
     if (Number(a.totalHours) > 0) return Number(a.totalHours);
@@ -341,7 +349,7 @@
     });
     state.sessions = (state.sessions || []).filter((x) => {
       const a = idx.assignments.get(x.assignmentId);
-      return isTerm(a) && x.week >= 1 && x.week <= Math.min(state.settings.weeks, weeksFor(state, a)) &&
+      return isTerm(a) && x.week >= 1 && x.week <= termWeeks(state, a) &&
         x.day >= 0 && x.day < state.settings.days.length && canSpan(pers, x.start, x.len, true);
     });
     // ชั่วโมงทั้งเทอมลดลง → เก็บวันแรก ๆ ไว้จนครบ ที่เกินตัดออก (วันสุดท้ายที่เกินบางส่วนตัดท้ายให้พอดี)
@@ -1009,8 +1017,8 @@
     const idx = (cache && cache.idx) || indexState(state);
     const pers = (cache && cache.pers) || periods(state.settings);
     if (!canSpan(pers, start, len, true)) return { ok: false, span: false, reasons: ['เกินคาบสุดท้ายของวัน'] };
-    const wf = weeksFor(state, a);
-    if (week > wf) return { ok: false, span: false, reasons: ['ภาคเรียนของกลุ่มนี้มี ' + wf + ' สัปดาห์ (สัปดาห์ที่ ' + week + ' จบภาคเรียนแล้ว)'] };
+    const wf = termWeeks(state, a);
+    if (week > wf) return { ok: false, span: false, reasons: ['ภาคเรียนของกลุ่มนี้มี ' + wf + ' สัปดาห์ (สัปดาห์ที่ ' + week + ' จบภาคเรียนแล้ว · กดปลดล็อกสัปดาห์ได้)'] };
     const weekly = (cache && cache.weekly) || buildOccupancy(state, idx);
     const sOcc = (cache && cache.sOcc) || buildSessionOccupancy(state, idx, skipId);
     const blocked = (cache && cache.blocked) || blockedCells(state.settings);
@@ -1105,7 +1113,7 @@
     if (!isTerm(a)) return { added: 0, remaining: 0 };
     const closed = new Set(state.settings.closedDays || []);
     let added = 0;
-    for (let w = Math.max(1, fromWeek || 1); w <= Math.min(state.settings.weeks, weeksFor(state, a)); w++) {
+    for (let w = Math.max(1, fromWeek || 1); w <= termWeeks(state, a); w++) {
       for (let d = 0; d < state.settings.days.length; d++) {
         if (closed.has(state.settings.days[d])) continue;
         if (state.sessions.some((x) => x.assignmentId === a.id && x.week === w && x.day === d)) continue;
@@ -1978,6 +1986,7 @@
     groupLevel,
     weeksForGroup,
     weeksFor,
+    termWeeks,
     hoursPerDay,
     termTotal,
     termStatus,

@@ -3061,7 +3061,7 @@
       const st = a && TT.termStatus(state, a, idx.subjects);
       const end = a && termEnd(a);
       hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> ครั้งละ ' + Math.min(st.hpd, st.remaining) + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกช่องสีเขียวในตารางสัปดาห์ไหนก็ได้ ต่อไปเรื่อย ๆ จนครบ' +
-        (end && !end.all ? ' · <b>' + esc(end.text) + '</b>' : '') : '';
+        (end && (!end.all || end.unlocked) ? ' · <b>' + esc(end.text) + '</b> ' + unlockBtn(a) : '') : '';
     } else hint = 'เลือกวิชาทางขวา แล้วคลิกคาบในตารางของสัปดาห์ที่ต้องการ (หรือลากวาง) · สีเทา = ตารางรายสัปดาห์ · คลิกช่องสีที่วางแล้วเพื่อใช้เครื่องมือหรือย้าย';
     let split = '<option value="">แบ่งเวลา…</option>';
     if (x) for (let h = 1; h < x.len; h++) split += '<option value="' + h + '">หัว ' + h + ' + ท้าย ' + (x.len - h) + '</option>';
@@ -3119,6 +3119,11 @@
     return html + '</nav>';
   }
 
+  /** สัปดาห์สุดท้ายของกลุ่ม (ถ้ามีวิชาที่ปลดล็อกสัปดาห์ ใช้สัปดาห์สุดท้ายของวิชานั้น) */
+  function groupEndWeek(g) {
+    return Math.max(TT.weeksForGroup(state, g), ...state.assignments.filter((a) => TT.isTerm(a) && a.groupIds.includes(g.id)).map((a) => TT.termWeeks(state, a)));
+  }
+
   /** ตารางทั้งเทอม = ตาราง วัน × คาบ แบบเดียวกับรายสัปดาห์ 18 ตาราง (สัปดาห์ละ 1 ตาราง) */
   function termGrid(ent, conflicts) {
     const s = state.settings;
@@ -3163,7 +3168,7 @@
       // ตามวันที่: 1 set = 1 ตาราง แถวละวันที่ (วันเรียนที่ 1–18, ศุกร์เหลือง, เสาร์-อาทิตย์แดง)
       const seen = new Set();
       const sessions = [...byWeek.values()].flat().map((y) => y.x);
-      const endWeek = ui.view === 'group' ? TT.weeksForGroup(state, ent) : 0;
+      const endWeek = ui.view === 'group' ? groupEndWeek(ent) : 0;
       for (const st of cal.sets) {
         const hrs = sessions.filter((x) => st.days.some((d) => d.week === x.week && d.day === x.day)).reduce((n, x) => n + x.len, 0);
         grids += '<div class="term-set" id="tw-s' + st.n + '"><div class="tw-head"><b>set ' + st.n + '</b><span>' + P.dateText(st.from) + ' – ' + P.dateText(st.to) + ' · ' + st.school + ' วันเรียน' +
@@ -3176,7 +3181,7 @@
     for (let w = 1; w <= s.weeks; w++) {
       const list = byWeek.get(w) || [];
       const hrs = list.reduce((n, it) => n + it.x.len, 0);
-      const ended = ui.view === 'group' && w > TT.weeksForGroup(state, ent);
+      const ended = ui.view === 'group' && w > groupEndWeek(ent);
       grids += '<div class="term-week' + (ended ? ' ended' : '') + '" data-week="' + w + '" id="tw-' + w + '">' +
         '<div class="tw-head"><b>สัปดาห์ที่ ' + w + '</b><span>' + (ended ? 'จบภาคเรียน ' + TT.groupLevel(ent) + ' แล้ว (' + TT.weeksForGroup(state, ent) + ' สัปดาห์)'
           : hrs ? 'ทั้งเทอม ' + hrs + ' ชม.' : 'ยังไม่มีวิชาทั้งเทอม') + '</span></div>' +
@@ -3207,7 +3212,7 @@
           '<div class="term-ctl"><label>วันละ <input type="number" min="1" max="13" data-hpd="' + esc(a.id) + '" value="' + st.hpd + '" aria-label="ชั่วโมงต่อวัน"> ชม.</label>' +
           '<label>เริ่มคาบ <select data-tstart="' + esc(a.id) + '" aria-label="คาบเริ่มที่ต้องการ">' + simpleOptions(TT.periods(state.settings).map((p) => [p.no, String(p.no)]), a.termStart || 1) + '</select></label>' +
           '<label>รวมทั้งเทอม <input type="number" min="1" data-ttot="' + esc(a.id) + '" value="' + (Number(a.totalHours) > 0 ? a.totalHours : '') + '" placeholder="' + (TT.assignmentHours(a, idx.subjects) * TT.weeksFor(state, a)) + '" aria-label="ชั่วโมงทั้งเทอม (เว้นว่าง = อัตโนมัติ)"> ชม.</label></div>' +
-          planActs(a, idx, '<button class="btn small ghost" data-tclr="' + esc(a.id) + '"' + (st.placed ? '' : ' disabled') + '>ล้าง</button>') + '</div>';
+          planActs(a, idx, '<button class="btn small ghost" data-tclr="' + esc(a.id) + '"' + (st.placed ? '' : ' disabled') + '>ล้าง</button>' + unlockBtn(a, true)) + '</div>';
       }).join('');
     }
     html += '</section>';
@@ -3226,17 +3231,47 @@
 
   /** วิชาทั้งเทอม: สัปดาห์สุดท้ายที่วางได้ (ปวช. 18 / ปวส. 15) และข้อความอธิบาย */
   function termEnd(a) {
-    const wf = TT.weeksFor(state, a);
+    const base = Math.min(state.settings.weeks, TT.weeksFor(state, a));
+    const wf = TT.termWeeks(state, a);
     const lv = [...new Set(a.groupIds.map((g) => TT.groupLevel(state.groups.find((x) => x.id === g) || {})).filter(Boolean))].join('/');
     const cal = TT.termCalendar(state);
     const lastDay = cal && cal.days.filter((d) => d.kind === 'school' && d.week <= wf).pop();
-    return { wf, all: wf >= state.settings.weeks, text: (lv ? lv + ' ' : '') + 'เรียน ' + wf + ' สัปดาห์ — วางได้ถึงสัปดาห์ที่ ' + wf + (lastDay ? ' (วันที่ ' + P.dateText(lastDay) + ')' : '') };
+    return {
+      wf, base, all: wf >= state.settings.weeks, canUnlock: base < state.settings.weeks, unlocked: !!a.unlockWeeks && base < state.settings.weeks,
+      text: a.unlockWeeks && base < state.settings.weeks
+        ? 'ปลดล็อกแล้ว วางได้ถึงสัปดาห์ที่ ' + wf + (lastDay ? ' (วันที่ ' + P.dateText(lastDay) + ')' : '') + ' · ชั่วโมงยังคิด ' + base + ' สัปดาห์'
+        : (lv ? lv + ' ' : '') + 'เรียน ' + wf + ' สัปดาห์ — วางได้ถึงสัปดาห์ที่ ' + wf + (lastDay ? ' (วันที่ ' + P.dateText(lastDay) + ')' : ''),
+    };
+  }
+
+  /** ปุ่มปลดล็อก/ล็อกสัปดาห์หลังจบภาคเรียนของระดับ (เช่น ปวส. สัปดาห์ 16–18) */
+  function unlockBtn(a, small) {
+    const e = termEnd(a);
+    if (!e.canUnlock) return '';
+    const range = (e.base + 1) + '–' + state.settings.weeks;
+    return '<button class="btn small ' + (e.unlocked ? 'ghost' : 'unlock') + '" data-unlockw="' + esc(a.id) + '" title="' +
+      (e.unlocked ? 'ล็อกกลับ: วางได้ถึงสัปดาห์ที่ ' + e.base + ' เท่านั้น' : 'ให้วางวิชานี้ในสัปดาห์ที่ ' + range + ' ได้ (ชั่วโมงทั้งเทอมเท่าเดิม)') + '">' +
+      ICON.lock + (e.unlocked ? (small ? 'ล็อกสัปดาห์ ' + range : 'ล็อกกลับ') : 'ปลดล็อกสัปดาห์ ' + range) + '</button>';
+  }
+
+  async function toggleUnlockWeeks(id) {
+    const a = state.assignments.find((x) => x.id === id);
+    if (!a) return;
+    const e = termEnd(a);
+    if (e.unlocked) {
+      const after = state.sessions.filter((x) => x.assignmentId === a.id && x.week > e.base);
+      if (after.length && !(await ask({ tone: 'danger', title: 'ล็อกสัปดาห์ ' + (e.base + 1) + '–' + state.settings.weeks + ' กลับ?', msg: 'วันที่วางไว้หลังสัปดาห์ที่ ' + e.base + ' จำนวน ' + after.length + ' วัน จะถูกนำออก', ok: 'ล็อกกลับ' }))) return;
+      delete a.unlockWeeks;
+    } else a.unlockWeeks = true;
+    commit();
+    if (ui.termPick === a.id) highlightTerm(a.id);
+    toast(subjCode(a, TT.indexState(state)) + ': ' + termEnd(a).text);
   }
 
   /** เหตุที่วางตรงนี้ไม่ได้เลย (เลยภาคเรียนของกลุ่ม หรือเลยคาบสุดท้ายของวัน) */
   function cantPlaceWhy(a, week, len) {
     const e = termEnd(a);
-    if (week > e.wf) return 'สัปดาห์ที่ ' + week + ' จบภาคเรียนของ ' + groupsLabel(a, TT.indexState(state)) + ' แล้ว · ' + e.text;
+    if (week > e.wf) return 'สัปดาห์ที่ ' + week + ' จบภาคเรียนของ ' + groupsLabel(a, TT.indexState(state)) + ' แล้ว · ' + e.text + (e.canUnlock ? ' · ถ้าจะวางต่อ กด "ปลดล็อกสัปดาห์" ที่แถบด้านบน' : '');
     const pers = TT.periods(state.settings);
     return 'ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ เพราะจะเลยคาบสุดท้ายของวัน (' + pers[pers.length - 1].end + ') — คลิกคาบที่เร็วขึ้น หรือลด "วันละ"';
   }
@@ -3327,6 +3362,7 @@
     const v = VIEWS[ui.view];
     const at = (td) => [Number(td.closest('[data-week]').dataset.week), Number(td.dataset.d), Number(td.dataset.p)];
     $$('[data-tview]', el).forEach((b) => (b.onclick = () => { ui.termView = b.dataset.tview; render(); }));
+    $$('[data-unlockw]', el).forEach((b) => (b.onclick = () => toggleUnlockWeeks(b.dataset.unlockw)));
     const tsi = $('#term-start', el);
     if (tsi) tsi.onchange = () => {
       state.settings.termStart = tsi.value || '';

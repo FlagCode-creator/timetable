@@ -729,3 +729,22 @@ test('ปฏิทินภาคเรียน: เปิดเทอม 2 พ
   s.settings.termStart = '';
   assert.strictEqual(TT.termCalendar(s), null);
 });
+
+test('ปลดล็อกสัปดาห์: ปวส. วางสัปดาห์ 16–18 ได้เมื่อปลดล็อก ชั่วโมงทั้งเทอมยังคิด 15 สัปดาห์', () => {
+  const s = mini();
+  s.groups[0].level = 'ปวส.1';
+  const a = TT.addSubjectToGroup(s, 'g1', 's1').assignment;
+  TT.setPlan(s, a.id, 'term');
+  assert.strictEqual(TT.termWeeks(s, a), 15);
+  assert.strictEqual(TT.checkSession(s, a, 16, 0, 1, 2).span, false);
+  a.unlockWeeks = true;
+  assert.strictEqual(TT.termWeeks(s, a), 18);
+  assert.ok(TT.checkSession(s, a, 16, 0, 1, 2).ok);
+  assert.strictEqual(TT.termTotal(s, a), 2 * 15, 'ชั่วโมงทั้งเทอมเท่าเดิม');
+  s.sessions.push({ id: 'x', assignmentId: a.id, week: 17, day: 0, start: 1, len: 2 });
+  TT.sanitizePlacements(s);
+  assert.strictEqual(s.sessions.length, 1, 'ปลดล็อกอยู่: เก็บไว้');
+  delete a.unlockWeeks;
+  TT.sanitizePlacements(s);
+  assert.strictEqual(s.sessions.length, 0, 'ล็อกกลับ: สัปดาห์ 17 ถูกนำออก');
+});

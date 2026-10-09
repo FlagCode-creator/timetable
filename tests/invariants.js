@@ -40,7 +40,7 @@ module.exports = function invariants(s) {
     const a = A.get(x.assignmentId);
     if (!a) { bad('session ไม่มี assignment'); continue; }
     if (!TT.isTerm(a)) bad('session ของวิชารายสัปดาห์');
-    if (x.week < 1 || x.week > TT.weeksFor(s, a)) bad('session สัปดาห์เกิน');
+    if (x.week < 1 || x.week > TT.termWeeks(s, a)) bad('session สัปดาห์เกิน');
     if (!TT.canSpan(pers, x.start, x.len, true)) bad('session เกินคาบ');
   }
   for (const a of s.assignments.filter(TT.isTerm)) {
