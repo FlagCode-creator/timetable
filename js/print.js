@@ -29,10 +29,31 @@
   }
 
   /** เนื้อหาในช่องตารางตามมุมมอง */
+  /** ชั้น/กลุ่มเรียน + แผนกของกลุ่ม เช่น "ปวช.1 สารสนเทศ 68 · แผนกเทคโนโลยีสารสนเทศ" */
+  function classText(idx, groupIds) {
+    const gs = groupIds.map((g) => idx.groups.get(g)).filter(Boolean);
+    // แผนก: ที่ตั้งไว้ หรือเดาจากสาขา/ชื่อกลุ่ม (เหมือนหน้าข้อมูล)
+    const flat = (x) => String(x || '').replace(/[\s.]/g, '');
+    const guess = (g) => {
+      const m = flat(g.major);
+      const n = flat(g.name);
+      const d = [...idx.departments.values()].find((x) => { const k = flat(x.name); return k && ((m && (m === k || m.includes(k) || k.includes(m))) || n.includes(k)); });
+      return d ? d.name : '';
+    };
+    const depts = [...new Set(gs.map((g) => (idx.departments.get(g.departmentId) || {}).name || guess(g)).filter(Boolean))];
+    return { groups: gs.map((g) => g.name || g.code), dept: depts.length ? 'แผนก' + depts.join(', ') : '' };
+  }
+
+  /** เนื้อหาในช่องตารางตามมุมมอง · ใบพิมพ์ (forEditor = false): รหัสวิชา ชื่อวิชา ชั้น/กลุ่ม แผนก (ตารางครู/ห้อง) หรือครู (ตารางกลุ่ม) */
   function cellItems(state, filter, view, forEditor) {
     const idx = TT.indexState(state);
     const items = [];
-    const toHtml = (lines) => lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : 'c-line') + '">' + l + '</div>').join('');
+    const render = (it) => {
+      const lines = it.head.slice();
+      if (view !== 'group' && it.groups.length) lines.push(esc(it.groups.join(', ') + (!forEditor && it.dept && !it.teacherAct ? ' · ' + it.dept : '')));
+      return lines.map((l, i) => '<div class="' + (i === 0 ? 'c-code' : i === 1 && it.named ? 'c-name' : 'c-line') + '">' + l + '</div>').join('') +
+        it.tail.map((l) => '<div class="c-line c-room">' + l + '</div>').join('');
+    };
     for (const pl of state.placements) {
       const a = idx.assignments.get(pl.assignmentId);
       if (!a || !filter(a)) continue;
@@ -40,21 +61,25 @@
       const s = a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const room = a.roomId ? idx.rooms.get(a.roomId) : null;
       const teacher = idx.teachers.get(a.teacherId);
-      const groups = a.groupIds.map((g) => idx.groups.get(g)).filter(Boolean).map((g) => g.name || g.code);
+      const cls = classText(idx, a.groupIds);
       // Home Room ครูที่ปรึกษาหลายห้อง (ตารางครู/ห้อง): รวมเป็นช่องเดียว แสดงทุกห้อง
       if (view !== 'group' && a.recurringId) {
         const same = items.find((it) => it.day === pl.day && it.start === pl.start && TT.isCombinedWith(it.assignment, a));
         if (same) {
-          same.groups.push(...groups);
-          same.html = toHtml(same.head.concat(esc(same.groups.join(', '))));
+          same.groups.push(...cls.groups);
+          if (cls.dept && !same.dept.includes(cls.dept.slice(4))) same.dept = same.dept ? same.dept + ', ' + cls.dept.slice(4) : cls.dept;
+          same.html = render(same);
           continue;
         }
       }
       const head = [esc(s ? s.code : a.title || 'กิจกรรม') + (a.blockCourse ? ' <small>(Block Course)</small>' : '')];
-      if (view !== 'room' && room) head.push(esc(room.name));
+      const named = !forEditor && !!s;
+      if (named) head.push(esc(s.name)); // ใบพิมพ์: ชื่อวิชาใต้รหัส
+      const tail = [];
       if (view !== 'teacher' && teacher) head.push(esc(teacher.name));
       else if (view !== 'teacher' && forEditor) head.push('<span class="no-teacher">ยังไม่มีครู</span>');
-      items.push({
+      if (view !== 'room' && room) (forEditor ? head : tail).push(esc(room.name));
+      const it = {
         key: TT.placementKey(a.id, pl.blockIndex),
         day: pl.day,
         start: pl.start,
@@ -65,9 +90,14 @@
         color: colorClass(state, a),
         title: s ? s.code + ' ' + s.name : a.title,
         head,
-        groups: groups.slice(),
-        html: toHtml(view !== 'group' && groups.length ? head.concat(esc(groups.join(', '))) : head),
-      });
+        tail,
+        named,
+        teacherAct: TT.isTeacherActivity(state, a),
+        groups: cls.groups.slice(),
+        dept: cls.dept,
+      };
+      it.html = render(it);
+      items.push(it);
     }
     return items;
   }
@@ -236,9 +266,11 @@
       const a = idx.assignments.get(x.assignmentId);
       const sj = a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const room = a.roomId ? idx.rooms.get(a.roomId) : null;
-      const who = kind === 'group' ? (idx.teachers.get(a.teacherId) || {}).name || '' : a.groupIds.map((g) => (idx.groups.get(g) || {}).name).filter(Boolean).join(', ');
+      const cls = classText(idx, a.groupIds);
+      const who = kind === 'group' ? [(idx.teachers.get(a.teacherId) || {}).name || ''] : [cls.groups.join(', ') + (cls.dept ? ' · ' + cls.dept : '')];
       return { key: 'S:' + x.id, day: x.day, start: x.start, len: x.len,
-        html: '<div class="c-code">' + esc(sj ? sj.code : a.title) + ' *</div>' + (room ? '<div class="c-line">' + esc(room.name) + '</div>' : '') + '<div class="c-line">' + esc(who) + '</div>' };
+        html: '<div class="c-code">' + esc(sj ? sj.code : a.title) + ' *</div>' + (sj ? '<div class="c-name">' + esc(sj.name) + '</div>' : '') +
+          who.filter(Boolean).map((w) => '<div class="c-line">' + esc(w) + '</div>').join('') + (room ? '<div class="c-line c-room">' + esc(room.name) + '</div>' : '') };
     });
     const head = '<h2>ตารางทั้งเทอม ภาคเรียนที่ ' + esc(s.semester) + ' ปีการศึกษา ' + esc(s.year) + '</h2>' +
       '<div class="center">' + esc(s.collegeName) + ' · ' + (kind === 'group' ? 'กลุ่มเรียน ' : 'ผู้สอน ') + esc(ent.name) + '</div>';
