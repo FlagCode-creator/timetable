@@ -917,3 +917,5 @@ dialog.hist { width: min(720px, calc(100vw - 32px)); }
 .hist-row .grow { display: flex; flex-direction: column; flex: 1; font-size: 13px; }
 .hist-row small { color: var(--ink-2); font-size: 12px; }
 #hdr-undo:disabled, #hdr-redo:disabled { opacity: .35; }
+/* วิชาทั้งเทอม: สัปดาห์ที่เลยภาคเรียนของกลุ่ม (เช่น ปวส. หลังสัปดาห์ที่ 15) */
+.tt-grid td.nospan.ended .bi { background: repeating-linear-gradient(-45deg, #eee 0 6px, #f8f8f8 6px 12px); border-color: #e2e2e2; }

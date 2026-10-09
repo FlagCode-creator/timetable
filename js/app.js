@@ -3059,7 +3059,9 @@
       const a = idx.assignments.get(ui.termPick);
       const sj = a && a.subjectId ? idx.subjects.get(a.subjectId) : null;
       const st = a && TT.termStatus(state, a, idx.subjects);
-      hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> ครั้งละ ' + Math.min(st.hpd, st.remaining) + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกช่องสีเขียวในตารางสัปดาห์ไหนก็ได้ ต่อไปเรื่อย ๆ จนครบ' : '';
+      const end = a && termEnd(a);
+      hint = a ? 'กำลังวาง <b>' + esc(sj ? sj.code : a.title) + '</b> ครั้งละ ' + Math.min(st.hpd, st.remaining) + ' ชม. เหลือ ' + st.remaining + ' ชม. — คลิกช่องสีเขียวในตารางสัปดาห์ไหนก็ได้ ต่อไปเรื่อย ๆ จนครบ' +
+        (end && !end.all ? ' · <b>' + esc(end.text) + '</b>' : '') : '';
     } else hint = 'เลือกวิชาทางขวา แล้วคลิกคาบในตารางของสัปดาห์ที่ต้องการ (หรือลากวาง) · สีเทา = ตารางรายสัปดาห์ · คลิกช่องสีที่วางแล้วเพื่อใช้เครื่องมือหรือย้าย';
     let split = '<option value="">แบ่งเวลา…</option>';
     if (x) for (let h = 1; h < x.len; h++) split += '<option value="' + h + '">หัว ' + h + ' + ท้าย ' + (x.len - h) + '</option>';
@@ -3222,13 +3224,31 @@
     return html;
   }
 
+  /** วิชาทั้งเทอม: สัปดาห์สุดท้ายที่วางได้ (ปวช. 18 / ปวส. 15) และข้อความอธิบาย */
+  function termEnd(a) {
+    const wf = TT.weeksFor(state, a);
+    const lv = [...new Set(a.groupIds.map((g) => TT.groupLevel(state.groups.find((x) => x.id === g) || {})).filter(Boolean))].join('/');
+    const cal = TT.termCalendar(state);
+    const lastDay = cal && cal.days.filter((d) => d.kind === 'school' && d.week <= wf).pop();
+    return { wf, all: wf >= state.settings.weeks, text: (lv ? lv + ' ' : '') + 'เรียน ' + wf + ' สัปดาห์ — วางได้ถึงสัปดาห์ที่ ' + wf + (lastDay ? ' (วันที่ ' + P.dateText(lastDay) + ')' : '') };
+  }
+
+  /** เหตุที่วางตรงนี้ไม่ได้เลย (เลยภาคเรียนของกลุ่ม หรือเลยคาบสุดท้ายของวัน) */
+  function cantPlaceWhy(a, week, len) {
+    const e = termEnd(a);
+    if (week > e.wf) return 'สัปดาห์ที่ ' + week + ' จบภาคเรียนของ ' + groupsLabel(a, TT.indexState(state)) + ' แล้ว · ' + e.text;
+    const pers = TT.periods(state.settings);
+    return 'ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ เพราะจะเลยคาบสุดท้ายของวัน (' + pers[pers.length - 1].end + ') — คลิกคาบที่เร็วขึ้น หรือลด "วันละ"';
+  }
+
   function highlightTerm(assignmentId, skipId) {
     $$('#termwrap td.can, #termwrap td.clash, #termwrap td.nospan').forEach((td) => {
-      td.classList.remove('can', 'clash', 'nospan');
+      td.classList.remove('can', 'clash', 'nospan', 'ended');
       td.removeAttribute('title');
     });
     const a = state.assignments.find((x) => x.id === assignmentId);
     if (!a) return;
+    const end = termEnd(a);
     const moving = skipId && state.sessions.find((y) => y.id === skipId);
     const st = TT.termStatus(state, a);
     const len = moving ? moving.len : Math.min(st.hpd, st.remaining);
@@ -3237,6 +3257,7 @@
     $$('#termwrap [data-week]').forEach((wk) => {
       const w = Number(wk.dataset.week);
       $$('td.empty[data-p]', wk).forEach((td) => {
+        if (w > end.wf) { td.classList.add('nospan', 'ended'); td.title = 'จบภาคเรียนแล้ว · ' + end.text; return; }
         const d = Number(td.dataset.d);
         const p = Number(td.dataset.p);
         // วางใหม่: ถ้าวันละเต็มจำนวนไม่พอ ระบบวางเท่าที่ว่าง (เหมือนตอนคลิก) — ช่องนั้นจึงเป็นสีเขียว
@@ -3271,7 +3292,7 @@
     }
     if (start == null) {
       start = TT.snapSession(state, a, week, day, p, len, null, cache);
-      if (start == null) { toast('ช่วงนี้วาง ' + len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
+      if (start == null) { toast(cantPlaceWhy(a, week, len), true); return; }
       const chk = TT.checkSession(state, a, week, day, start, len, null, cache);
       const clashes = TT.clashesAt(state, a, { week, day, start, len });
       const res = await conflictAsk(chk.reasons, 'วาง', { a, clashes });
@@ -3290,7 +3311,7 @@
     if (!x) return;
     const a = state.assignments.find((y) => y.id === x.assignmentId);
     const start = TT.snapSession(state, a, week, day, p, x.len, x.id);
-    if (start == null) { toast('ช่วงนี้วาง ' + x.len + ' ชม. ไม่ได้ (เลยคาบสุดท้าย)', true); return; }
+    if (start == null) { toast(cantPlaceWhy(a, week, x.len), true); return; }
     const chk = TT.checkSession(state, a, week, day, start, x.len, x.id);
     if (!chk.ok) {
       const clashes = TT.clashesAt(state, a, { week, day, start, len: x.len, skip: 'S:' + x.id });
